@@ -2777,6 +2777,152 @@ void mergedevs()
 	}
 }
 
+void cmd_load_rbf(char*cmd)
+{
+  fpga_load_rbf(cmd);
+}
+
+void cmd_fpga_set(char*cmd)
+{
+  uint32_t byte = 0, value = 0;
+  if (2 != sscanf(cmd, "%d %x", &byte, &value))
+  {
+    printf("invalid argument\n");
+    return;
+  }
+  switch (byte)
+  {
+  break;case 0:  ;
+  break;case 1:  spi8(value);
+  break;case 2:  spi16(value);
+  break;case 3:  spi24(value);
+  break;default: spi32(value);
+  }
+}
+
+int cmdutil_read_enable_param(char*cmd)
+{
+  uint32_t set = 0;
+  if (1 != sscanf(cmd, "%d", &set))
+  {
+    printf("invalid argument\n");
+    return -1;
+  }
+  return !!set;
+}
+
+void cmd_en_fpga(char*cmd)
+{
+  int set = cmdutil_read_enable_param(cmd);
+  if (set < 0) return;
+  if (set)
+    EnableFpga();
+  else
+    DisableFpga();
+}
+
+void cmd_en_osd(char*cmd)
+{
+  int set = cmdutil_read_enable_param(cmd);
+  if (set < 0) return;
+  if (set)
+    EnableOsd();
+  else
+    DisableOsd();
+}
+
+void cmd_en_dmode(char*cmd){
+  int set = cmdutil_read_enable_param(cmd);
+  if (set < 0) return;
+  if (set)
+    EnableDMode();
+  else
+    DisableDMode();
+}
+
+void cmd_en_io(char*cmd)
+{
+  int set = cmdutil_read_enable_param(cmd);
+  if (set < 0) return;
+  if (set)
+    EnableIO();
+  else
+    DisableIO();
+}
+
+void cmd_user_joy(char*cmd)
+{
+  uint32_t joy = 0;
+  uint32_t map = 0;
+  int newdir = 0;
+  if (3 != sscanf(cmd, "%x %x %d", &joy,&map,&newdir))
+  {
+    printf("invalid argument\n");
+    return;
+  }
+  user_io_digital_joystick(joy, map, newdir);
+}
+
+void cmd_user_key(char*cmd)
+{
+  uint32_t key = 0;
+  uint32_t press = 0;
+  if (2 != sscanf(cmd, "%x %x", &key, &press))
+  {
+    printf("invalid argument\n");
+    return;
+  }
+  user_io_kbd(key, press);
+}
+
+struct cmdentry
+{
+  const char * name;
+  void (*cmd)(char*);
+};
+int cmdlist_compare(const void * a, const void * b)
+{
+  return strcmp(((struct cmdentry*)a)->name, ((struct cmdentry*)b)->name);
+}
+void handle_MiSTer_cmd(char*cmd)
+{
+  static struct cmdentry cmdlist[] =
+  {
+  // Must be lexicographically sorted wrt "name" field (it can not contain ' ' or '\0')
+  // (e.g. :sort vim command, but mind '!' and escaped chars at end of similar names)
+    {"enable_dmode", cmd_en_dmode},
+    {"enable_fpga",  cmd_en_fpga},
+    {"enable_io",    cmd_en_io},
+    {"enable_osd",   cmd_en_osd},
+    {"fb_cmd",       video_cmd},
+    {"fpga_set",     cmd_fpga_set},
+    {"load_core",    cmd_load_rbf},
+    {"user_joy",     cmd_user_joy},
+    {"user_key",     cmd_user_key},
+  };
+  int namelen;
+  for (namelen = 0; ; namelen += 1)
+    if (cmd[namelen] == ' '||cmd[namelen] == '\0')
+      break;
+  if (namelen <= 0) return;
+  char name[namelen+1];
+  strncpy(name, cmd, namelen);
+  name[namelen] = '\0';
+  struct cmdentry target = {name, 0};
+	struct cmdentry * command = (struct cmdentry*) bsearch(&target , cmdlist,
+    sizeof(cmdlist)/sizeof(cmdlist[0]), sizeof(cmdlist[0]), cmdlist_compare);
+  if (!command)
+  {
+    printf("invalid MiSTer command: %s\n", cmd);
+    return;
+  }
+  printf("MiSTer command: %s\n", cmd);
+  cmd += namelen;
+  if (cmd[namelen] != '\0')
+    cmd += 1;
+  command->cmd(cmd);
+}
+
 int input_test(int getchar)
 {
 	static char cur_leds = 0;
@@ -3427,9 +3573,7 @@ int input_test(int getchar)
 				{
 					if (cmd[len - 1] == '\n') cmd[len - 1] = 0;
 					cmd[len] = 0;
-					printf("MiSTer_cmd: %s\n", cmd);
-					if (!strncmp(cmd, "fb_cmd", 6)) video_cmd(cmd);
-					else if (!strncmp(cmd, "load_core ", 10)) fpga_load_rbf(cmd + 10);
+					handle_MiSTer_cmd(cmd);
 				}
 			}
 
