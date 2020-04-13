@@ -2783,24 +2783,6 @@ void cmd_load_rbf(char*cmd)
   fpga_load_rbf(cmd);
 }
 
-void cmd_fpga_set(char*cmd)
-{
-  uint32_t byte = 0, value = 0;
-  if (2 != sscanf(cmd, "%d %x", &byte, &value))
-  {
-    printf("invalid argument\n");
-    return;
-  }
-  switch (byte)
-  {
-  break;case 0:  ;
-  break;case 1:  spi8(value);
-  break;case 2:  spi16(value);
-  break;case 3:  spi24(value);
-  break;default: spi32(value);
-  }
-}
-
 int cmdutil_read_enable_param(char*cmd)
 {
   uint32_t set = 0;
@@ -2810,70 +2792,6 @@ int cmdutil_read_enable_param(char*cmd)
     return -1;
   }
   return !!set;
-}
-
-void cmd_en_fpga(char*cmd)
-{
-  int set = cmdutil_read_enable_param(cmd);
-  if (set < 0) return;
-  if (set)
-    EnableFpga();
-  else
-    DisableFpga();
-}
-
-void cmd_en_osd(char*cmd)
-{
-  int set = cmdutil_read_enable_param(cmd);
-  if (set < 0) return;
-  if (set)
-    EnableOsd();
-  else
-    DisableOsd();
-}
-
-void cmd_en_dmode(char*cmd){
-  int set = cmdutil_read_enable_param(cmd);
-  if (set < 0) return;
-  if (set)
-    EnableDMode();
-  else
-    DisableDMode();
-}
-
-void cmd_en_io(char*cmd)
-{
-  int set = cmdutil_read_enable_param(cmd);
-  if (set < 0) return;
-  if (set)
-    EnableIO();
-  else
-    DisableIO();
-}
-
-void cmd_user_joy(char*cmd)
-{
-  uint32_t joy = 0;
-  uint32_t map = 0;
-  int newdir = 0;
-  if (3 != sscanf(cmd, "%x %x %d", &joy,&map,&newdir))
-  {
-    printf("invalid argument\n");
-    return;
-  }
-  user_io_digital_joystick(joy, map, newdir);
-}
-
-void cmd_user_key(char*cmd)
-{
-  uint32_t key = 0;
-  uint32_t press = 0;
-  if (2 != sscanf(cmd, "%x %x", &key, &press))
-  {
-    printf("invalid argument\n");
-    return;
-  }
-  user_io_kbd(key, press);
 }
 
 void cmd_force_file(char*cmd)
@@ -2917,7 +2835,7 @@ void cmd_useract(char*cmd)
       cmd++;
       if (*cmd != '\0')
       {
-        uint32_t key;
+        uint32_t key = 0;
         get_key_code(a, &key);
         int press;
         if (1 == sscanf(cmd, "%d", &press))
@@ -2997,17 +2915,10 @@ void handle_MiSTer_cmd(char*cmd)
   // Must be lexicographically sorted wrt "name" field (it can not contain ' ' or '\0')
   // (e.g. :sort vim command, but mind '!' and escaped chars at end of similar names)
     {"emulact",      cmd_emulact},
-    {"enable_dmode", cmd_en_dmode},
-    {"enable_fpga",  cmd_en_fpga},
-    {"enable_io",    cmd_en_io},
-    {"enable_osd",   cmd_en_osd},
     {"fb_cmd",       video_cmd},
     {"force_file",   cmd_force_file},
-    {"fpga_set",     cmd_fpga_set},
     {"load_core",    cmd_load_rbf},
     {"select_a_rom", cmd_select_a_rom},
-    {"user_joy",     cmd_user_joy},
-    {"user_key",     cmd_user_key},
     {"useract",      cmd_useract},
   };
   int namelen;
