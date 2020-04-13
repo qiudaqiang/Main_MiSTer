@@ -1779,10 +1779,20 @@ static int process_ss(const char *rom_name)
 	return 1;
 }
 
+static char force_file[1024] = {0};
+int user_io_force_file(const char* name)
+{
+	strncpy(force_file, name, sizeof(force_file));
+	force_file[sizeof(force_file)-1] = '\0';
+	return 0;
+}
+
 int user_io_file_tx(const char* name, unsigned char index, char opensave, char mute, char composite)
 {
 	fileTYPE f = {};
 	static uint8_t buf[4096];
+
+	if (force_file[0] != '\0') name = force_file;
 
 	if (!FileOpen(&f, name, mute)) return 0;
 

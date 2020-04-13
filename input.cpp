@@ -2875,6 +2875,11 @@ void cmd_user_key(char*cmd)
   user_io_kbd(key, press);
 }
 
+void cmd_force_file(char*cmd)
+{
+  user_io_force_file(cmd);
+}
+
 struct cmdentry
 {
   const char * name;
@@ -2895,6 +2900,7 @@ void handle_MiSTer_cmd(char*cmd)
     {"enable_io",    cmd_en_io},
     {"enable_osd",   cmd_en_osd},
     {"fb_cmd",       video_cmd},
+    {"force_file",   cmd_force_file},
     {"fpga_set",     cmd_fpga_set},
     {"load_core",    cmd_load_rbf},
     {"user_joy",     cmd_user_joy},
