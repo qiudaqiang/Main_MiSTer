@@ -2796,8 +2796,8 @@ int cmdutil_read_enable_param(char*cmd)
 
 void cmd_mask_scan_add(char*cmd)
 {
-  if (cmd[0]=='\n'||cmd[1]=='\n') return;
-  ForceFileScanAdd(cmd+1);
+  if (cmd[0]=='\0') return;
+  ForceFileScanAdd(cmd);
 }
 
 void cmd_mask_scan_clear(char*cmd)
@@ -2834,21 +2834,17 @@ void cmd_useract(char*cmd)
 {
   if (*cmd != '\0')
   {
+    char a = *cmd;
     cmd++;
     if (*cmd != '\0')
     {
-      char a = *cmd;
-      cmd++;
-      if (*cmd != '\0')
+      uint32_t key = 0;
+      get_key_code(a, &key);
+      int press;
+      if (1 == sscanf(cmd, "%d", &press))
       {
-        uint32_t key = 0;
-        get_key_code(a, &key);
-        int press;
-        if (1 == sscanf(cmd, "%d", &press))
-        {
-          user_io_kbd(key, press);
-          return;
-        }
+        user_io_kbd(key, press);
+        return;
       }
     }
   }
@@ -2918,8 +2914,9 @@ void handle_MiSTer_cmd(char*cmd)
 {
   static struct cmdentry cmdlist[] =
   {
-  // Must be lexicographically sorted wrt "name" field (it can not contain ' ' or '\0')
-  // (e.g. :sort vim command, but mind '!' and escaped chars at end of similar names)
+  // The "name field" can not contain ' ' or '\0'.
+  // The array must be lexicographically sorted wrt "name" field (e.g.
+  //   :sort vim command, but mind '!' and escaped chars at end of similar names).
     {"emulact",      cmd_emulact},
     {"fb_cmd",       video_cmd},
     {"load_core",    cmd_load_rbf},
@@ -2945,10 +2942,9 @@ void handle_MiSTer_cmd(char*cmd)
     return;
   }
   printf("MiSTer command: %s\n", cmd);
-  cmd += namelen;
-  if (cmd[namelen] != '\0')
-    cmd += 1;
-  command->cmd(cmd);
+  while (cmd[namelen] == ' ')
+    namelen += 1;
+  command->cmd(cmd+namelen);
 }
 
 int input_test(int getchar)
