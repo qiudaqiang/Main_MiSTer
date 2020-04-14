@@ -10,12 +10,19 @@
 #include "fpga_io.h"
 #include "video.h"
 
-void cmd_load_rbf(char*cmd)
+#define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
+
+void cmd_video_cmd(const char* cmd)
 {
-  fpga_load_rbf(cmd);
+  video_cmd((char *)cmd);
 }
 
-int cmdutil_read_enable_param(char*cmd)
+void cmd_load_rbf(const char*cmd)
+{
+  fpga_load_rbf((char*)cmd);
+}
+
+int cmdutil_read_enable_param(const char*cmd)
 {
   uint32_t set = 0;
   if (1 != sscanf(cmd, "%d", &set))
@@ -26,19 +33,19 @@ int cmdutil_read_enable_param(char*cmd)
   return !!set;
 }
 
-void cmd_mask_scan_add(char*cmd)
+void cmd_mask_scan_add(const char*cmd)
 {
   if (cmd[0]=='\0') return;
-  ForceFileScanAdd(cmd);
+  ForceFileScanAdd((char*)cmd);
 }
 
-void cmd_mask_scan_rename(char*cmd)
+void cmd_mask_scan_rename(const char*cmd)
 {
   if (cmd[0]=='\0') return;
-  ForceFileScanRenameLast(cmd);
+  ForceFileScanRenameLast((char*)cmd);
 }
 
-void cmd_mask_scan_clear(char*cmd)
+void cmd_mask_scan_clear(const char*cmd)
 {
   ForceFileScanClear();
 }
@@ -54,21 +61,21 @@ int get_key_code(char a, uint32_t * key)
       printf("invalid argument\n");
       return -1;
 
-    break;case 'S': *key = 0x58;
-    break;case 'U': *key = 0x67;
-    break;case 'D': *key = 0x6c;
-    break;case 'L': *key = 0x69;
-    break;case 'R': *key = 0x6a;
-    break;case 'N': *key = 0x1c;
-    break;case 'P': *key = 0x01;
-    break;case 'H': *key = 0x66;
-    break;case 'E': *key = 0x6b;
+    break;case 'U': *key = 0x67; // up
+    break;case 'D': *key = 0x6c; // down
+    break;case 'L': *key = 0x69; // left
+    break;case 'R': *key = 0x6a; // right
+    break;case 'O': *key = 0x1c; // open
+    break;case 'E': *key = 0x01; // esc
+    break;case 'H': *key = 0x66; // home
+    break;case 'F': *key = 0x6b; // end (finish)
+    break;case 'M': *key = 0x58; // osd menu
   }
 
   return 0;
 }
 
-void cmd_useract(char*cmd)
+void cmd_useract(const char*cmd)
 {
   if (*cmd != '\0')
   {
@@ -108,14 +115,14 @@ static int send_user_io_sequence(void* data){
         fprintf(f, "useract %c 1\n", *scr);
         fclose(f);
       }
-      nsleep(100000000);
+      nsleep(50000000);
       f = fopen(CMD_FIFO, "w");
       if (f)
       {
         fprintf(f, "useract %c 0\n", *scr);
         fclose(f);
       }
-      nsleep(100000000);
+      nsleep(50000000);
     }
     scr++;
   }
@@ -128,35 +135,97 @@ static int forkdo(int (*callback)(void*), void* data){
   exit(callback(data));    // child process
 }
 
-void cmd_emulact(char*cmd)
+void cmd_emulact(const char*cmd)
 {
-  forkdo(send_user_io_sequence, cmd);
+  forkdo(send_user_io_sequence, (void*)cmd);
 }
 
-void cmd_select_a_rom(char*cmd)
+int first_string_compare(const void * a, const void * b)
 {
-  cmd_emulact("SNEN");
-  // TODO : per-core sequence
+  return strcmp(*(const char**)a, *(const char**)b);
+}
+
+struct keyvalue {
+  const char* key;
+  const char* value;
+};
+void cmd_select_a_rom(const char*cmd)
+{
+  if (!cmd || cmd[0] == '\0') cmd = user_io_get_core_name();
+
+  struct keyvalue default_override[] = {
+  // The "key" field can not contain '\0'.
+  // The array must be lexicographically sorted wrt "name" field (e.g.
+  //   :sort vim command, but mind '!' and escaped chars at end of similar names).
+
+    { "ACUARIUS.CAQ",    "EEMDOFO" },
+    { "AO486.C",         "EEMDOFO" },
+    { "AO486.D",         "EEMDDOFO" },
+    { "ARCHIE.1",        "EEMDOFO" },
+    { "ATARI800.Cart",   "EEMDDOFO" },
+    { "ATARI800.D2",     "EEMDOFO" },
+    { "Amstrad.B",       "EEMDOFO" },
+    { "C16.Cart",        "EEMDOFO" },
+    { "C16.Disk",        "EEMDDOFO" },
+    { "C16.PRG",         "EEMDDOFO" },
+    { "C16.Play",        "EEMDDDOFO" },
+    { "C16.Tape",        "EEMDDOFO" },
+    { "C64.Cart",        "EEMDDOFO" },
+    { "C64.Play",        "EEMDDDDOFO" },
+    { "C64.Tape",        "EEMDDDOFO" },
+    { "CoCo 3.1",        "EEMDOFO" },
+    { "CoCo 3.2",        "EEMDDOFO" },
+    { "CoCo 3.3",        "EEMDDDOFO" },
+    { "Coleco.SG",       "EEMDOFO" },
+    { "MACPLUS.2",       "EEMDOFO" },
+    { "MACPLUS.VHD",     "EEMDDOFO" },
+    { "MegaCD.BIOS",     "EEMDOFO" },
+    { "NES.FDSBIOS",     "EEMDOFO" },
+    { "NK0011M.A",       "EEMDOFO" },
+    { "NK0011M.B",       "EEMDDOFO" },
+    { "NK0011M.H",       "EEMDDDOFO" },
+    { "SAMCOUPE.2",      "EEMDOFO" },
+    { "SPMX.DDI",        "EEMDOFO" },
+    { "Spectrum.Tape",   "EEMDOFO" },
+    { "TGFX16.SGX",      "EEMDOFO" },
+    { "TI-00_4A.D",      "EEMDOFO" },
+    { "TI-00_4A.G",      "EEMDDOFO" },
+    { "VECTOR06.A",      "EEMDOFO" },
+    { "VECTOR06.B",      "EEMDDOFO" },
+    { "VIC20.CT",        "EEMDDOFO" },
+    { "VIC20.Cart",      "EEMDOFO" },
+    { "VIC20.Disk",      "EEMDDDOFO" },
+    { "VIC20.Play",      "EEMDDDDDOFO" },
+    { "VIC20.Tape",      "EEMDDDDOFO" },
+    { "ZSpectrum.Tape",  "EEMDOFO" },
+
+    //{ "Altair8800", 0}, // unsupported
+    //{ "MultiComp", 0 }, // unsupported
+    //{ "X68000", 0 }, // unsupported
+  };
+
+  struct keyvalue target = {cmd, 0};
+	struct keyvalue* code = (struct keyvalue*)
+    SBSEARCH(&target, default_override, first_string_compare);
+
+  if (code) cmd_emulact((char*)(code->value));
+  else cmd_emulact((char*)"EEMOFO"); // default
 }
 
 struct cmdentry
 {
   const char * name;
-  void (*cmd)(char*);
+  void (*cmd)(const char*);
 };
-int cmdlist_compare(const void * a, const void * b)
-{
-  return strcmp(((struct cmdentry*)a)->name, ((struct cmdentry*)b)->name);
-}
 void handle_MiSTer_cmd(char*cmd)
 {
   static struct cmdentry cmdlist[] =
   {
-  // The "name field" can not contain ' ' or '\0'.
+  // The "name" field can not contain ' ' or '\0'.
   // The array must be lexicographically sorted wrt "name" field (e.g.
   //   :sort vim command, but mind '!' and escaped chars at end of similar names).
     {"emulact",      cmd_emulact},
-    {"fb_cmd",       video_cmd},
+    {"fb_cmd",       cmd_video_cmd},
     {"load_core",    cmd_load_rbf},
     {"scan_clear",   cmd_mask_scan_clear},
     {"scan_mask_add",cmd_mask_scan_add},
@@ -173,8 +242,8 @@ void handle_MiSTer_cmd(char*cmd)
   strncpy(name, cmd, namelen);
   name[namelen] = '\0';
   struct cmdentry target = {name, 0};
-	struct cmdentry * command = (struct cmdentry*) bsearch(&target , cmdlist,
-    sizeof(cmdlist)/sizeof(cmdlist[0]), sizeof(cmdlist[0]), cmdlist_compare);
+	struct cmdentry * command = (struct cmdentry*)
+    SBSEARCH(&target, cmdlist, first_string_compare);
   if (!command)
   {
     printf("invalid MiSTer command: %s\n", cmd);
