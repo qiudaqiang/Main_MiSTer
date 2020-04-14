@@ -1242,6 +1242,17 @@ int ForceFileScanAdd(char* path)
 	return 0;
 }
 
+int ForceFileScanRenameLast(char* path)
+{
+	if (DirItemForced.size() > 0)
+	{
+		struct direntext_t de = DirItemForced[DirItemForced.size()-1];
+		strncpy(de.altname, path, sizeof(de.altname));
+		DirItemForced[DirItemForced.size()-1] = de;
+	}
+	return 0;
+}
+
 int ForceFileScanClear()
 {
 	DirItemForceEnabled = 0;

@@ -2800,6 +2800,12 @@ void cmd_mask_scan_add(char*cmd)
   ForceFileScanAdd(cmd);
 }
 
+void cmd_mask_scan_rename(char*cmd)
+{
+  if (cmd[0]=='\0') return;
+  ForceFileScanRenameLast(cmd);
+}
+
 void cmd_mask_scan_clear(char*cmd)
 {
   ForceFileScanClear();
@@ -2922,6 +2928,7 @@ void handle_MiSTer_cmd(char*cmd)
     {"load_core",    cmd_load_rbf},
     {"scan_clear",   cmd_mask_scan_clear},
     {"scan_mask_add",cmd_mask_scan_add},
+    {"scan_rename",  cmd_mask_scan_rename},
     {"select_a_rom", cmd_select_a_rom},
     {"useract",      cmd_useract},
   };

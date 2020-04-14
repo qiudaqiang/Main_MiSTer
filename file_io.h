@@ -39,6 +39,7 @@ direntext_t* flist_DirItem(int n);
 direntext_t* flist_SelectedItem();
 
 int ForceFileScanAdd(char* path);
+int ForceFileScanRenameLast(char* path);
 int ForceFileScanClear();
 
 // scanning flags
