@@ -37,6 +37,8 @@ typedef std::vector<direntext_t> DirentVector;
 static const size_t YieldIterations = 128;
 
 DirentVector DirItem;
+static DirentVector DirItemForced;
+static int DirItemForceEnabled = 0;
 static int iSelectedEntry = 0;       // selected entry index
 static int iFirstEntry = 0;
 
@@ -1216,10 +1218,46 @@ static void get_display_name(direntext_t *dext, const char *ext, int options)
 	if (fext) *fext = 0;
 }
 
+int ForceFileScanAdd(char* path)
+{
+	DirItemForceEnabled = 1;
+  int n = strlen(path)-1;
+	while(n >= 0 && path[n] != '/') n--;
+	if (n < 0) return -1;
+	path[n] = '\0';
+	DIR *dir = opendir(path);
+	if (!dir) return -1;
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL)
+		if (!strcmp(ent->d_name, path+n+1))
+			break;
+  path[n] = '/';
+  if (!ent) return -1;
+	struct direntext_t de = {0};
+  memcpy(&(de.de), ent, sizeof(*ent));
+	strncpy(de.altname,path,sizeof(de.altname));
+	de.altname[sizeof(de.altname)-1] = '\0';
+	strncpy(de.datecode,"00.00.00",16);
+	DirItemForced.push_back(de);
+	return 0;
+}
+
+int ForceFileScanClear()
+{
+	DirItemForceEnabled = 0;
+	DirItemForced.clear();
+	return 0;
+}
+
 int ScanDirectory(char* path, int mode, const char *extension, int options, const char *prefix)
 {
 	static char file_name[1024];
 	static char full_path[1024];
+
+	if (DirItemForceEnabled){
+		DirItem = DirItemForced;
+		return 0;
+  }
 
 	int has_trd = 0;
 	const char *ext = extension;

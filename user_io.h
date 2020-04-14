@@ -261,8 +261,6 @@ void user_io_check_reset(unsigned short modifiers, char useKeys);
 
 void user_io_rtc_reset();
 
-int user_io_force_file(const char *);
-
 const char* get_rbf_dir();
 const char* get_rbf_name();
 const char* get_rbf_path();

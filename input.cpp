@@ -2794,9 +2794,15 @@ int cmdutil_read_enable_param(char*cmd)
   return !!set;
 }
 
-void cmd_force_file(char*cmd)
+void cmd_mask_scan_add(char*cmd)
 {
-  user_io_force_file(cmd);
+  if (cmd[0]=='\n'||cmd[1]=='\n') return;
+  ForceFileScanAdd(cmd+1);
+}
+
+void cmd_mask_scan_clear(char*cmd)
+{
+  ForceFileScanClear();
 }
 
 int get_key_code(char a, uint32_t * key)
@@ -2916,8 +2922,9 @@ void handle_MiSTer_cmd(char*cmd)
   // (e.g. :sort vim command, but mind '!' and escaped chars at end of similar names)
     {"emulact",      cmd_emulact},
     {"fb_cmd",       video_cmd},
-    {"force_file",   cmd_force_file},
     {"load_core",    cmd_load_rbf},
+    {"scan_clear",   cmd_mask_scan_clear},
+    {"scan_mask_add",cmd_mask_scan_add},
     {"select_a_rom", cmd_select_a_rom},
     {"useract",      cmd_useract},
   };
