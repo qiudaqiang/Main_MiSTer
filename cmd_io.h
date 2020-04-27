@@ -6,4 +6,6 @@
 
 void handle_MiSTer_cmd(char*cmd);
 
+int slave_ui_toggle();
+
 #endif

@@ -4,13 +4,21 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
+#include <signal.h>
 
 #include "cmd_io.h"
 #include "user_io.h"
 #include "fpga_io.h"
 #include "video.h"
+#include "input.h"
+#include "menu.h"
 
 #define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
+
+static pid_t slave_pid = 0;
+static char* slave_working_directory = "/media/fat/fbmenu";
+static char* slave_command_line[] = {"/media/fat/fbmenu/lua","/media/fat/fbmenu/fbmenu.lua",NULL}; // TODO : read from ini
 
 void cmd_video_cmd(const char* cmd)
 {
@@ -212,6 +220,61 @@ void cmd_select_a_rom(const char*cmd)
   else cmd_emulact((char*)"EEMOFO"); // default
 }
 
+static int slave_init(){
+  pid_t pid = fork();
+  if (pid < 0) return -1; //error
+  if (pid > 0) {
+    // in parent: child correctly created
+    slave_pid = pid;
+    return pid;
+  }
+  // in child: execute command
+  chdir(slave_working_directory);
+  execv(slave_command_line[0],slave_command_line);
+  // reached only on execv error
+  fprintf(stderr, "%s\n", strerror(errno));
+  exit(errno);
+  return 0;
+}
+
+static int slave_check(){
+  if (slave_pid == 0) return 0;
+  int unknown = kill(slave_pid, 0);
+  if (unknown) slave_pid = 0;
+  return !unknown;
+}
+
+static int slave_resume(){
+  MenuHide();
+  input_switch(0);
+  video_chvt(1);
+  video_fb_enable(1);
+  slave_check(); // updates slave_pid
+  if (slave_pid == 0) slave_init();
+  else kill(slave_pid, SIGCONT);
+}
+
+static int slave_suspend(){
+  video_fb_enable(0);
+  input_switch(1);
+  if (slave_check()) // updates slave_pid
+  {
+    kill(slave_pid, SIGSTOP);
+  }
+}
+
+int slave_ui_toggle(){
+  static int running = 0;
+  if (!running) slave_resume();
+  else slave_suspend();
+  running = !running;
+  return running;
+}
+
+static void cmd_slavetoggle(const char*){
+  slave_ui_toggle();
+}
+
 struct cmdentry
 {
   const char * name;
@@ -231,6 +294,7 @@ void handle_MiSTer_cmd(char*cmd)
     {"scan_mask_add",cmd_mask_scan_add},
     {"scan_rename",  cmd_mask_scan_rename},
     {"select_a_rom", cmd_select_a_rom},
+    {"slavetoggle",  cmd_slavetoggle},
     {"useract",      cmd_useract},
   };
   int namelen;
