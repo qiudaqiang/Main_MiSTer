@@ -13,6 +13,7 @@
 #include "video.h"
 #include "input.h"
 #include "menu.h"
+#include "support.h"
 
 #define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
 
@@ -27,7 +28,9 @@ void cmd_video_cmd(const char* cmd)
 
 void cmd_load_rbf(const char*cmd)
 {
-  fpga_load_rbf((char*)cmd);
+  int len = strlen(cmd);
+  if (len > 4 && !strcasecmp(cmd + len - 4, ".mra")) arcade_load(cmd);
+  else fpga_load_rbf((char*)cmd);
 }
 
 int cmdutil_read_enable_param(const char*cmd)
