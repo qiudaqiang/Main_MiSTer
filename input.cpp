@@ -3341,14 +3341,7 @@ int input_test(int getchar)
 
 			if ((pool[NUMDEV + 1].fd >= 0) && (pool[NUMDEV + 1].revents & POLLIN))
 			{
-				static char cmd[1024];
-				int len = read(pool[NUMDEV + 1].fd, cmd, sizeof(cmd) - 1);
-				if (len)
-				{
-					if (cmd[len - 1] == '\n') cmd[len - 1] = 0;
-					cmd[len] = 0;
-					handle_MiSTer_cmd(cmd);
-				}
+				handle_MiSTer_cmd(pool[NUMDEV + 1].fd);
 			}
 
 			if ((pool[NUMDEV + 2].fd >= 0) && (pool[NUMDEV + 2].revents & POLLPRI))

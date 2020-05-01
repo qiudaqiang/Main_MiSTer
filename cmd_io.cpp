@@ -20,8 +20,8 @@
 #define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
 
 static pid_t slave_pid = 0;
-static char* slave_working_directory = "/media/fat/fbmenu";
-static char* slave_command_line[] = {"/media/fat/fbmenu/lua","/media/fat/fbmenu/fbmenu.lua",NULL}; // TODO : read from ini
+static const char* slave_working_directory = "/media/fat/fbmenu";
+static const char* slave_command_line[] = {"/media/fat/fbmenu/lua","/media/fat/fbmenu/fbmenu.lua",NULL}; // TODO : read from ini
 
 void cmd_video_cmd(const char* cmd)
 {
@@ -58,7 +58,7 @@ void cmd_mask_scan_rename(const char*cmd)
   ForceFileScanRenameLast((char*)cmd);
 }
 
-void cmd_mask_scan_clear(const char*cmd)
+void cmd_mask_scan_clear(const char*)
 {
   ForceFileScanClear();
 }
@@ -110,7 +110,7 @@ void cmd_useract(const char*cmd)
 }
 
 static void msleep(long ms){
-  struct timespec w = {0};
+  struct timespec w;
   w.tv_sec = ms / 1000;
   w.tv_nsec = (ms % 1000 ) * 1000000;
   while (nanosleep(&w, &w));
@@ -243,7 +243,7 @@ static int slave_init(){
   }
   // in child: execute command
   chdir(slave_working_directory);
-  execv(slave_command_line[0],slave_command_line);
+  execv(slave_command_line[0],(char**)slave_command_line);
   // reached only on execv error
   fprintf(stderr, "%s\n", strerror(errno));
   exit(errno);
@@ -257,7 +257,7 @@ static int slave_check(){
   return !unknown;
 }
 
-static int slave_resume(){
+static void slave_resume(){
   MenuHide();
   input_switch(0);
   video_chvt(1);
@@ -267,7 +267,7 @@ static int slave_resume(){
   else kill(slave_pid, SIGCONT);
 }
 
-static int slave_suspend(){
+static void slave_suspend(){
   video_fb_enable(0);
   input_switch(1);
   if (slave_check()) // updates slave_pid
@@ -306,7 +306,7 @@ struct cmdentry
   const char * name;
   void (*cmd)(const char*);
 };
-void handle_MiSTer_cmd(char*cmd)
+static void handle_single_cmd(char*cmd)
 {
   static struct cmdentry cmdlist[] =
   {
@@ -324,35 +324,52 @@ void handle_MiSTer_cmd(char*cmd)
     {"useract",      cmd_useract},
   };
 
-  while (cmd && *cmd != '\0') {
-    char * next = 0;
-    for (int c = 0; cmd[c] != '\0'; c += 1) if (cmd[c] == '\n') {
-      cmd[c] = '\0';
-      next = cmd + c + 1;
+  int namelen;
+  for (namelen = 0; ; namelen += 1)
+    if (cmd[namelen] == ' '||cmd[namelen] == '\0')
       break;
-    }
-    int namelen;
-    for (namelen = 0; ; namelen += 1)
-      if (cmd[namelen] == ' '||cmd[namelen] == '\0')
+  if (namelen <= 0) return;
+  char name[namelen+1];
+  strncpy(name, cmd, namelen);
+  name[namelen] = '\0';
+  struct cmdentry target = {name, 0};
+  struct cmdentry * command = (struct cmdentry*)
+    SBSEARCH(&target, cmdlist, first_string_compare);
+  if (!command)
+  {
+    printf("invalid MiSTer command: %s", cmd);
+    return;
+  }
+  printf("MiSTer command: %s", cmd);
+  while (cmd[namelen] == ' ')
+    namelen += 1;
+  command->cmd(cmd+namelen);
+}
+
+void handle_MiSTer_cmd(int cmdfd)
+{
+  static char CMD[1024];
+  char* cmd = CMD;
+  int len = read(cmdfd, cmd, sizeof(cmd) - 1);
+  if (len)
+  {
+    if (cmd[len - 1] == '\n') cmd[len - 1] = 0;
+    cmd[len] = 0;
+
+    // Split lines in multiple commands
+    while (cmd && *cmd != '\0') {
+      char * next = 0;
+      for (int c = 0; cmd[c] != '\0'; c += 1) if (cmd[c] == '\n') {
+        cmd[c] = '\0';
+        next = cmd + c + 1;
         break;
-    if (namelen <= 0) return;
-    char name[namelen+1];
-    strncpy(name, cmd, namelen);
-    name[namelen] = '\0';
-    struct cmdentry target = {name, 0};
-    struct cmdentry * command = (struct cmdentry*)
-      SBSEARCH(&target, cmdlist, first_string_compare);
-    if (!command)
-    {
-      printf("invalid MiSTer command: %s", cmd);
-      return;
+      }
+
+      handle_single_cmd(cmd);
+
+      if (!next) break;
+      cmd = next;
     }
-    printf("MiSTer command: %s", cmd);
-    while (cmd[namelen] == ' ')
-      namelen += 1;
-    command->cmd(cmd+namelen);
-    if (!next) break;
-    cmd = next;
   }
 }
 
