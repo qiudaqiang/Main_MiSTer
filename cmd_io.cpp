@@ -15,6 +15,8 @@
 #include "menu.h"
 #include "support.h"
 
+#include "debug_log.h"
+
 #define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
 
 static pid_t slave_pid = 0;
@@ -107,34 +109,42 @@ void cmd_useract(const char*cmd)
   printf("invalid argument\n");
 }
 
-static void nsleep(long ns){
+static void msleep(long ms){
   struct timespec w = {0};
-  w.tv_sec = 0;
-  w.tv_nsec = ns;
+  w.tv_sec = ms / 1000;
+  w.tv_nsec = (ms % 1000 ) * 1000000;
   while (nanosleep(&w, &w));
 }
+
+#define SEND_MISTER_CMD(...) do { \
+  FILE* f = fopen(CMD_FIFO, "w"); \
+  if (f) fprintf(f, __VA_ARGS__); \
+  if (f) fclose(f);               \
+} while (0)
 
 // To be run in a sub process
 static int send_user_io_sequence(void* data){
   char* scr = (char*) data;
+
+  // TODO : make optional
+  msleep(1000);
+
   while(*scr != '\0'){
-    if (*scr != ' '){
-      FILE* f;
-      f = fopen(CMD_FIFO, "w");
-      if (f)
-      {
-        fprintf(f, "useract %c 1\n", *scr);
-        fclose(f);
-      }
-      nsleep(50000000);
-      f = fopen(CMD_FIFO, "w");
-      if (f)
-      {
-        fprintf(f, "useract %c 0\n", *scr);
-        fclose(f);
-      }
-      nsleep(50000000);
+    switch (*scr) {
+
+    break;default:
+      SEND_MISTER_CMD("useract %c 1\n", *scr);
+      msleep(50);
+
+      SEND_MISTER_CMD("useract %c 0\n", *scr);
+    break;case 'x':
+      SEND_MISTER_CMD("scan_clear\n");
+
+    break;case 's':
+      SEND_MISTER_CMD("slavetoggle\n");
     }
+
+    msleep(50);
     scr++;
   }
   return 0;
@@ -169,46 +179,46 @@ void cmd_select_a_rom(const char*cmd)
   // The array must be lexicographically sorted wrt "name" field (e.g.
   //   :sort vim command, but mind '!' and escaped chars at end of similar names).
 
-    { "ACUARIUS.CAQ",    "EEMDOFO" },
-    { "AO486.C",         "EEMDOFO" },
-    { "AO486.D",         "EEMDDOFO" },
-    { "ARCHIE.1",        "EEMDOFO" },
-    { "ATARI800.Cart",   "EEMDDOFO" },
-    { "ATARI800.D2",     "EEMDOFO" },
-    { "Amstrad.B",       "EEMDOFO" },
-    { "C16.Cart",        "EEMDOFO" },
-    { "C16.Disk",        "EEMDDOFO" },
-    { "C16.PRG",         "EEMDDOFO" },
-    { "C16.Play",        "EEMDDDOFO" },
-    { "C16.Tape",        "EEMDDOFO" },
-    { "C64.Cart",        "EEMDDOFO" },
-    { "C64.Play",        "EEMDDDDOFO" },
-    { "C64.Tape",        "EEMDDDOFO" },
-    { "CoCo 3.1",        "EEMDOFO" },
-    { "CoCo 3.2",        "EEMDDOFO" },
-    { "CoCo 3.3",        "EEMDDDOFO" },
-    { "Coleco.SG",       "EEMDOFO" },
-    { "MACPLUS.2",       "EEMDOFO" },
-    { "MACPLUS.VHD",     "EEMDDOFO" },
-    { "MegaCD.BIOS",     "EEMDOFO" },
-    { "NES.FDSBIOS",     "EEMDOFO" },
-    { "NK0011M.A",       "EEMDOFO" },
-    { "NK0011M.B",       "EEMDDOFO" },
-    { "NK0011M.H",       "EEMDDDOFO" },
-    { "SAMCOUPE.2",      "EEMDOFO" },
-    { "SPMX.DDI",        "EEMDOFO" },
-    { "Spectrum.Tape",   "EEMDOFO" },
-    { "TGFX16.SGX",      "EEMDOFO" },
-    { "TI-00_4A.D",      "EEMDOFO" },
-    { "TI-00_4A.G",      "EEMDDOFO" },
-    { "VECTOR06.A",      "EEMDOFO" },
-    { "VECTOR06.B",      "EEMDDOFO" },
-    { "VIC20.CT",        "EEMDDOFO" },
-    { "VIC20.Cart",      "EEMDOFO" },
-    { "VIC20.Disk",      "EEMDDDOFO" },
-    { "VIC20.Play",      "EEMDDDDDOFO" },
-    { "VIC20.Tape",      "EEMDDDDOFO" },
-    { "ZSpectrum.Tape",  "EEMDOFO" },
+    { "ACUARIUS.CAQ",    "EEMDOFOxs" },
+    { "AO486.C",         "EEMDOFOxs" },
+    { "AO486.D",         "EEMDDOFOxs" },
+    { "ARCHIE.1",        "EEMDOFOxs" },
+    { "ATARI800.Cart",   "EEMDDOFOxs" },
+    { "ATARI800.D2",     "EEMDOFOxs" },
+    { "Amstrad.B",       "EEMDOFOxs" },
+    { "C16.Cart",        "EEMDOFOxs" },
+    { "C16.Disk",        "EEMDDOFOxs" },
+    { "C16.PRG",         "EEMDDOFOxs" },
+    { "C16.Play",        "EEMDDDOFOxs" },
+    { "C16.Tape",        "EEMDDOFOxs" },
+    { "C64.Cart",        "EEMDDOFOxs" },
+    { "C64.Play",        "EEMDDDDOFOxs" },
+    { "C64.Tape",        "EEMDDDOFOxs" },
+    { "CoCo 3.1",        "EEMDOFOxs" },
+    { "CoCo 3.2",        "EEMDDOFOxs" },
+    { "CoCo 3.3",        "EEMDDDOFOxs" },
+    { "Coleco.SG",       "EEMDOFOxs" },
+    { "MACPLUS.2",       "EEMDOFOxs" },
+    { "MACPLUS.VHD",     "EEMDDOFOxs" },
+    { "MegaCD.BIOS",     "EEMDOFOxs" },
+    { "NES.FDSBIOS",     "EEMDOFOxs" },
+    { "NK0011M.A",       "EEMDOFOxs" },
+    { "NK0011M.B",       "EEMDDOFOxs" },
+    { "NK0011M.H",       "EEMDDDOFOxs" },
+    { "SAMCOUPE.2",      "EEMDOFOxs" },
+    { "SPMX.DDI",        "EEMDOFOxs" },
+    { "Spectrum.Tape",   "EEMDOFOxs" },
+    { "TGFX16.SGX",      "EEMDOFOxs" },
+    { "TI-00_4A.D",      "EEMDOFOxs" },
+    { "TI-00_4A.G",      "EEMDDOFOxs" },
+    { "VECTOR06.A",      "EEMDOFOxs" },
+    { "VECTOR06.B",      "EEMDDOFOxs" },
+    { "VIC20.CT",        "EEMDDOFOxs" },
+    { "VIC20.Cart",      "EEMDOFOxs" },
+    { "VIC20.Disk",      "EEMDDDOFOxs" },
+    { "VIC20.Play",      "EEMDDDDDOFOxs" },
+    { "VIC20.Tape",      "EEMDDDDOFOxs" },
+    { "ZSpectrum.Tape",  "EEMDOFOxs" },
 
     //{ "Altair8800", 0}, // unsupported
     //{ "MultiComp", 0 }, // unsupported
@@ -220,7 +230,7 @@ void cmd_select_a_rom(const char*cmd)
     SBSEARCH(&target, default_override, first_string_compare);
 
   if (code) cmd_emulact((char*)(code->value));
-  else cmd_emulact((char*)"EEMOFO"); // default
+  else cmd_emulact((char*)"EEMOFOxs"); // default
 }
 
 static int slave_init(){
@@ -300,25 +310,36 @@ void handle_MiSTer_cmd(char*cmd)
     {"slavetoggle",  cmd_slavetoggle},
     {"useract",      cmd_useract},
   };
-  int namelen;
-  for (namelen = 0; ; namelen += 1)
-    if (cmd[namelen] == ' '||cmd[namelen] == '\0')
+
+  while (cmd && *cmd != '\0') {
+    char * next = 0;
+    for (int c = 0; cmd[c] != '\0'; c += 1) if (cmd[c] == '\n') {
+      cmd[c] = '\0';
+      next = cmd + c + 1;
       break;
-  if (namelen <= 0) return;
-  char name[namelen+1];
-  strncpy(name, cmd, namelen);
-  name[namelen] = '\0';
-  struct cmdentry target = {name, 0};
-	struct cmdentry * command = (struct cmdentry*)
-    SBSEARCH(&target, cmdlist, first_string_compare);
-  if (!command)
-  {
-    printf("invalid MiSTer command: %s\n", cmd);
-    return;
+    }
+    int namelen;
+    for (namelen = 0; ; namelen += 1)
+      if (cmd[namelen] == ' '||cmd[namelen] == '\0')
+        break;
+    if (namelen <= 0) return;
+    char name[namelen+1];
+    strncpy(name, cmd, namelen);
+    name[namelen] = '\0';
+    struct cmdentry target = {name, 0};
+    struct cmdentry * command = (struct cmdentry*)
+      SBSEARCH(&target, cmdlist, first_string_compare);
+    if (!command)
+    {
+      printf("invalid MiSTer command: %s", cmd);
+      return;
+    }
+    printf("MiSTer command: %s", cmd);
+    while (cmd[namelen] == ' ')
+      namelen += 1;
+    command->cmd(cmd+namelen);
+    if (!next) break;
+    cmd = next;
   }
-  printf("MiSTer command: %s\n", cmd);
-  while (cmd[namelen] == ' ')
-    namelen += 1;
-  command->cmd(cmd+namelen);
 }
 
