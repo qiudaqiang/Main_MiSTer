@@ -350,7 +350,7 @@ void handle_MiSTer_cmd(int cmdfd)
 {
   static char CMD[1024];
   char* cmd = CMD;
-  int len = read(cmdfd, cmd, sizeof(cmd) - 1);
+  int len = read(cmdfd, CMD, sizeof(CMD) - 1);
   if (len)
   {
     if (cmd[len - 1] == '\n') cmd[len - 1] = 0;
