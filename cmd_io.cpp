@@ -130,21 +130,10 @@ static int send_user_io_sequence(void* data){
   msleep(1000);
 
   while(*scr != '\0'){
-    switch (*scr) {
-
-    break;default:
-      SEND_MISTER_CMD("useract %c 1\n", *scr);
-      msleep(50);
-
-      SEND_MISTER_CMD("useract %c 0\n", *scr);
-    break;case 'x':
-      SEND_MISTER_CMD("scan_clear\n");
-
-    break;case 's':
-      SEND_MISTER_CMD("slave_enable !\n");
-    }
-
     msleep(50);
+    SEND_MISTER_CMD("useract %c 1\n", *scr);
+    msleep(50);
+    SEND_MISTER_CMD("useract %c 0\n", *scr);
     scr++;
   }
   return 0;
@@ -174,63 +163,64 @@ void cmd_select_a_rom(const char*cmd)
 {
   if (!cmd || cmd[0] == '\0') cmd = user_io_get_core_name();
 
-  struct keyvalue default_override[] = {
+  struct keyvalue sequence_map[] = {
   // The "key" field can not contain '\0'.
   // The array must be lexicographically sorted wrt "name" field (e.g.
   //   :sort vim command, but mind '!' and escaped chars at end of similar names).
 
-    { "ACUARIUS.CAQ",    "EEMDOFOxs" },
-    { "AO486.C",         "EEMDOFOxs" },
-    { "AO486.D",         "EEMDDOFOxs" },
-    { "ARCHIE.1",        "EEMDOFOxs" },
-    { "ATARI800.Cart",   "EEMDDOFOxs" },
-    { "ATARI800.D2",     "EEMDOFOxs" },
-    { "Amstrad.B",       "EEMDOFOxs" },
-    { "C16.Cart",        "EEMDOFOxs" },
-    { "C16.Disk",        "EEMDDOFOxs" },
-    { "C16.PRG",         "EEMDDOFOxs" },
-    { "C16.Play",        "EEMDDDOFOxs" },
-    { "C16.Tape",        "EEMDDOFOxs" },
-    { "C64.Cart",        "EEMDDOFOxs" },
-    { "C64.Play",        "EEMDDDDOFOxs" },
-    { "C64.Tape",        "EEMDDDOFOxs" },
-    { "CoCo 3.1",        "EEMDOFOxs" },
-    { "CoCo 3.2",        "EEMDDOFOxs" },
-    { "CoCo 3.3",        "EEMDDDOFOxs" },
-    { "Coleco.SG",       "EEMDOFOxs" },
-    { "MACPLUS.2",       "EEMDOFOxs" },
-    { "MACPLUS.VHD",     "EEMDDOFOxs" },
-    { "MegaCD.BIOS",     "EEMDOFOxs" },
-    { "NES.FDSBIOS",     "EEMDOFOxs" },
-    { "NK0011M.A",       "EEMDOFOxs" },
-    { "NK0011M.B",       "EEMDDOFOxs" },
-    { "NK0011M.H",       "EEMDDDOFOxs" },
-    { "SAMCOUPE.2",      "EEMDOFOxs" },
-    { "SPMX.DDI",        "EEMDOFOxs" },
-    { "Spectrum.Tape",   "EEMDOFOxs" },
-    { "TGFX16.SGX",      "EEMDOFOxs" },
-    { "TI-00_4A.D",      "EEMDOFOxs" },
-    { "TI-00_4A.G",      "EEMDDOFOxs" },
-    { "VECTOR06.A",      "EEMDOFOxs" },
-    { "VECTOR06.B",      "EEMDDOFOxs" },
-    { "VIC20.CT",        "EEMDDOFOxs" },
-    { "VIC20.Cart",      "EEMDOFOxs" },
-    { "VIC20.Disk",      "EEMDDDOFOxs" },
-    { "VIC20.Play",      "EEMDDDDDOFOxs" },
-    { "VIC20.Tape",      "EEMDDDDOFOxs" },
-    { "ZSpectrum.Tape",  "EEMDOFOxs" },
+    { "ACUARIUS.CAQ",    "EEMDOFO" },
+    { "AO486.C",         "EEMDOFO" },
+    { "AO486.D",         "EEMDDOFO" },
+    { "ARCHIE.1",        "EEMDOFO" },
+    { "ATARI800.Cart",   "EEMDDOFO" },
+    { "ATARI800.D2",     "EEMDOFO" },
+    { "Amstrad.B",       "EEMDOFO" },
+    { "C16.Cart",        "EEMDOFO" },
+    { "C16.Disk",        "EEMDDOFO" },
+    { "C16.PRG",         "EEMDDOFO" },
+    { "C16.Play",        "EEMDDDOFO" },
+    { "C16.Tape",        "EEMDDOFO" },
+    { "C64.Cart",        "EEMDDOFO" },
+    { "C64.Play",        "EEMDDDDOFO" },
+    { "C64.Tape",        "EEMDDDOFO" },
+    { "CoCo 3.1",        "EEMDOFO" },
+    { "CoCo 3.2",        "EEMDDOFO" },
+    { "CoCo 3.3",        "EEMDDDOFO" },
+    { "Coleco.SG",       "EEMDOFO" },
+    { "MACPLUS.2",       "EEMDOFO" },
+    { "MACPLUS.VHD",     "EEMDDOFO" },
+    { "MegaCD.BIOS",     "EEMDOFO" },
+    { "NES.FDSBIOS",     "EEMDOFO" },
+    { "NK0011M.A",       "EEMDOFO" },
+    { "NK0011M.B",       "EEMDDOFO" },
+    { "NK0011M.H",       "EEMDDDOFO" },
+    { "SAMCOUPE.2",      "EEMDOFO" },
+    { "SPMX.DDI",        "EEMDOFO" },
+    { "Spectrum.Tape",   "EEMDOFO" },
+    { "TGFX16.SGX",      "EEMDOFO" },
+    { "TI-00_4A.D",      "EEMDOFO" },
+    { "TI-00_4A.G",      "EEMDDOFO" },
+    { "VECTOR06.A",      "EEMDOFO" },
+    { "VECTOR06.B",      "EEMDDOFO" },
+    { "VIC20.CT",        "EEMDDOFO" },
+    { "VIC20.Cart",      "EEMDOFO" },
+    { "VIC20.Disk",      "EEMDDDOFO" },
+    { "VIC20.Play",      "EEMDDDDDOFO" },
+    { "VIC20.Tape",      "EEMDDDDOFO" },
+    { "ZSpectrum.Tape",  "EEMDOFO" },
 
     //{ "Altair8800", 0}, // unsupported
     //{ "MultiComp", 0 }, // unsupported
     //{ "X68000", 0 }, // unsupported
   };
+  const char* default_sequence = "EEMOFO";
 
   struct keyvalue target = {cmd, 0};
 	struct keyvalue* code = (struct keyvalue*)
-    SBSEARCH(&target, default_override, first_string_compare);
+    SBSEARCH(&target, sequence_map, first_string_compare);
 
   if (code) cmd_emulact((char*)(code->value));
-  else cmd_emulact((char*)"EEMOFOxs"); // default
+  else cmd_emulact((char*)default_sequence); // default
 }
 
 static int slave_init(){
