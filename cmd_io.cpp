@@ -15,8 +15,6 @@
 #include "menu.h"
 #include "support.h"
 
-#include "debug_log.h"
-
 #define SBSEARCH(T, SA, C)	(bsearch(T, SA, sizeof(SA)/sizeof(SA[0]), sizeof(SA[0]), (C)))
 
 static pid_t slave_pid = 0;
