@@ -141,7 +141,7 @@ static int send_user_io_sequence(void* data){
       SEND_MISTER_CMD("scan_clear\n");
 
     break;case 's':
-      SEND_MISTER_CMD("slavetoggle\n");
+      SEND_MISTER_CMD("slave_enable !\n");
     }
 
     msleep(50);
@@ -276,16 +276,29 @@ static int slave_suspend(){
   }
 }
 
-int slave_ui_toggle(){
-  static int running = 0;
-  if (!running) slave_resume();
-  else slave_suspend();
-  running = !running;
-  return running;
+static int slave_running = 0;
+
+int is_slave_enable(){
+  return slave_running;
 }
 
-static void cmd_slavetoggle(const char*){
-  slave_ui_toggle();
+void slave_enable(int status){
+  switch (status) {
+  break;case 0:
+    slave_running = 0;
+    slave_suspend();
+  break;default:
+    slave_running = 1;
+    slave_resume();
+  }
+}
+
+static void slave_enable(const char* cmd){
+  switch (*cmd) {
+  break;case '!': slave_enable(!is_slave_enable());
+  break;case '0': slave_enable(0);
+  break;case '1': slave_enable(1);
+  }
 }
 
 struct cmdentry
@@ -307,7 +320,7 @@ void handle_MiSTer_cmd(char*cmd)
     {"scan_mask_add",cmd_mask_scan_add},
     {"scan_rename",  cmd_mask_scan_rename},
     {"select_a_rom", cmd_select_a_rom},
-    {"slavetoggle",  cmd_slavetoggle},
+    {"slave_enable", slave_enable},
     {"useract",      cmd_useract},
   };
 
