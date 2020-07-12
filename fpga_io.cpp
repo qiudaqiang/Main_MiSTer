@@ -38,29 +38,8 @@ static struct nic301_registers       *nic301_regs  = (nic301_registers *)SOCFPGA
 static uint32_t *map_base;
 static int fd;
 
-static __inline void writel(uint32_t val, const void* reg)
-{
-/*
-	if(!IS_REG(reg))
-	{
-		printf("ERROR: Trying to write undefined address: %p\n.", reg);
-		fatal(-1);
-	}
-*/
-	*MAP_ADDR(reg) = val;
-}
-
-static __inline uint32_t readl(const void* reg)
-{
-/*
-	if (!IS_REG(reg))
-	{
-		printf("ERROR: Trying to read undefined address: %p\n.", reg);
-		fatal(-1);
-	}
-*/
-	return *MAP_ADDR(reg);
-}
+#define writel(val, reg) *MAP_ADDR(reg) = val
+#define readl(reg) *MAP_ADDR(reg)
 
 #define clrsetbits_le32(addr, clear, set) writel((readl(addr) & ~(clear)) | (set), addr)
 #define setbits_le32(addr, set)           writel( readl(addr) | (set), addr)
@@ -533,6 +512,27 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 	return ret;
 }
 
+static uint32_t gpo_copy = 0;
+void inline fpga_gpo_write(uint32_t value)
+{
+	gpo_copy = value;
+	writel(value, (void*)(SOCFPGA_MGR_ADDRESS + 0x10));
+}
+
+#define fpga_gpo_read() gpo_copy //readl((void*)(SOCFPGA_MGR_ADDRESS + 0x10))
+#define fpga_gpi_read() (int)readl((void*)(SOCFPGA_MGR_ADDRESS + 0x14))
+
+void fpga_core_write(uint32_t offset, uint32_t value)
+{
+	if (offset <= 0x1FFFFF) writel(value, (void*)(SOCFPGA_LWFPGASLAVES_ADDRESS + (offset & ~3)));
+}
+
+uint32_t fpga_core_read(uint32_t offset)
+{
+	if (offset <= 0x1FFFFF) return readl((void*)(SOCFPGA_LWFPGASLAVES_ADDRESS + (offset & ~3)));
+	return 0;
+}
+
 int fpga_io_init()
 {
 	if ((fd = open("/dev/mem", O_RDWR | O_SYNC)) == -1) return -1;
@@ -544,34 +544,8 @@ int fpga_io_init()
 		close(fd);
 		return -1;
 	}
-	return 0;
-}
 
-static uint32_t gpo_copy = 0;
-void fpga_gpo_write(uint32_t value)
-{
-	gpo_copy = value;
-	writel(value, (void*)(SOCFPGA_MGR_ADDRESS + 0x10));
-}
-
-uint32_t fpga_gpo_read()
-{
-	return gpo_copy; //readl((void*)(SOCFPGA_MGR_ADDRESS + 0x10));
-}
-
-int fpga_gpi_read()
-{
-	return readl((void*)(SOCFPGA_MGR_ADDRESS + 0x14));
-}
-
-void fpga_core_write(uint32_t offset, uint32_t value)
-{
-	if (offset <= 0x1FFFFF) writel(value, (void*)(SOCFPGA_LWFPGASLAVES_ADDRESS + (offset & ~3)));
-}
-
-uint32_t fpga_core_read(uint32_t offset)
-{
-	if (offset <= 0x1FFFFF) return readl((void*)(SOCFPGA_LWFPGASLAVES_ADDRESS + (offset & ~3)));
+	fpga_gpo_write(0);
 	return 0;
 }
 
@@ -589,7 +563,7 @@ int fpga_core_id()
 
 int fpga_get_fio_size()
 {
-	return (fpga_gpi_read()>>16) & 1;
+	return (fpga_gpi_read() >> 16) & 1;
 }
 
 int fpga_get_io_version()
@@ -671,4 +645,55 @@ int is_fpga_ready(int quick)
 	}
 
 	return fpgamgr_test_fpga_ready();
+}
+
+#define SSPI_STROBE  (1<<17)
+#define SSPI_ACK     SSPI_STROBE
+
+void fpga_spi_en(uint32_t mask, uint32_t en)
+{
+	uint32_t gpo = fpga_gpo_read() | 0x80000000;
+	fpga_gpo_write(en ? gpo | mask : gpo & ~mask);
+}
+
+uint16_t fpga_spi(uint16_t word)
+{
+	uint32_t gpo = (fpga_gpo_read() & ~(0xFFFF | SSPI_STROBE)) | word;
+
+	fpga_gpo_write(gpo);
+	fpga_gpo_write(gpo | SSPI_STROBE);
+
+	int gpi;
+	do
+	{
+		gpi = fpga_gpi_read();
+		if (gpi < 0)
+		{
+			printf("GPI[31]==1. FPGA is uninitialized?\n");
+			return 0;
+		}
+	} while (!(gpi & SSPI_ACK));
+
+	fpga_gpo_write(gpo);
+
+	do
+	{
+		gpi = fpga_gpi_read();
+		if (gpi < 0)
+		{
+			printf("GPI[31]==1. FPGA is uninitialized?\n");
+			return 0;
+		}
+	} while (gpi & SSPI_ACK);
+
+	return (uint16_t)gpi;
+}
+
+uint16_t fpga_spi_fast(uint16_t word)
+{
+	uint32_t gpo = (fpga_gpo_read() & ~(0xFFFF | SSPI_STROBE)) | word;
+	fpga_gpo_write(gpo);
+	fpga_gpo_write(gpo | SSPI_STROBE);
+	fpga_gpo_write(gpo);
+	return (uint16_t)fpga_gpi_read();
 }

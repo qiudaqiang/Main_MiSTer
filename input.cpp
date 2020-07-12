@@ -383,7 +383,7 @@ static const int ev2ps2[] =
 	0x71, //83  KEY_KPDOT
 	NONE, //84  ???
 	NONE, //85  KEY_ZENKAKU
-	0x56, //86  KEY_102ND
+	0x61, //86  KEY_102ND
 	0x78, //87  KEY_F11
 	0x07, //88  KEY_F12
 	NONE, //89  KEY_RO
@@ -851,7 +851,7 @@ enum QUIRK
 	QUIRK_MADCATZ360,
 	QUIRK_PDSP,
 	QUIRK_PDSP_ARCADE,
-	QUIRK_JAMMASD,
+	QUIRK_JAMMA,
 };
 
 typedef struct
@@ -867,6 +867,7 @@ typedef struct
 	uint8_t  num;
 	uint8_t  has_map;
 	uint32_t map[NUMBUTTONS];
+	int      map_shown;
 
 	uint8_t  osd_combo;
 
@@ -890,11 +891,13 @@ typedef struct
 
 	int      bind;
 	char     devname[32];
-	char     id[32];
+	char     id[64];
 	char     name[128];
 } devInput;
 
 static devInput input[NUMDEV] = {};
+static devInput player_pad[NUMPLAYERS] = {};
+static devInput player_pdsp[NUMPLAYERS] = {};
 
 #define BTN_NUM (sizeof(devInput::map) / sizeof(devInput::map[0]))
 
@@ -1577,11 +1580,19 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 				break;
 
 			case JOY_BTN2:
-				ev.code = KEY_ESC;
+				ev.code = KEY_BACK;
 				break;
 
 			case JOY_BTN3:
 				ev.code = KEY_BACKSPACE;
+				break;
+
+			case JOY_L:
+				ev.code = KEY_MINUS;
+				break;
+
+			case JOY_R:
+				ev.code = KEY_EQUAL;
 				break;
 
 			default:
@@ -1655,6 +1666,66 @@ static void joy_analog(int num, int axis, int offset)
 	}
 }
 
+void reset_players()
+{
+	for (int i = 0; i < NUMDEV; i++)
+	{
+		input[i].num = 0;
+		input[i].map_shown = 0;
+	}
+	memset(player_pad, 0, sizeof(player_pad));
+	memset(player_pdsp, 0, sizeof(player_pdsp));
+}
+
+void store_player(int num, int dev)
+{
+	devInput *player = (input[dev].quirk == QUIRK_PDSP) ? player_pdsp : player_pad;
+
+	// remove possible old assignment
+	for (int i = 1; i < NUMPLAYERS; i++) if (!strcmp(player[i].id, input[dev].id)) player[i].id[0] = 0;
+
+	if(num && num < NUMPLAYERS) memcpy(&player[num], &input[dev], sizeof(devInput));
+}
+
+void restore_player(int dev)
+{
+	// do not restore bound devices
+	if (dev != input[dev].bind) return;
+
+	devInput *player = (input[dev].quirk == QUIRK_PDSP) ? player_pdsp : player_pad;
+	for (int k = 1; k < NUMPLAYERS; k++)
+	{
+		if (strlen(player[k].id) && !strcmp(player[k].id, input[dev].id))
+		{
+			printf("restore player %d to %s (%s)\n", k, input[dev].devname, input[dev].id);
+
+			input[dev].num = k;
+			input[dev].map_shown = player[k].map_shown;
+
+			memcpy(input[dev].jkmap, player[k].jkmap, sizeof(input[dev].jkmap));
+			input[dev].lightgun = player[k].lightgun;
+			break;
+		}
+	}
+}
+
+void unflag_players()
+{
+	for (int k = 1; k < NUMPLAYERS; k++)
+	{
+		int found = 0;
+		for (int i = 0; i < NUMDEV; i++) if (strlen(player_pad[k].id) && !strcmp(player_pad[k].id, input[i].id)) found = 1;
+		if (!found) player_pad[k].map_shown = 0;
+	}
+
+	for (int k = 1; k < NUMPLAYERS; k++)
+	{
+		int found = 0;
+		for (int i = 0; i < NUMDEV; i++) if (strlen(player_pdsp[k].id) && !strcmp(player_pdsp[k].id, input[i].id)) found = 1;
+		if (!found) player_pdsp[k].map_shown = 0;
+	}
+}
+
 static int ds_mouse_emu = 0;
 
 static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int dev)
@@ -1680,33 +1751,10 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	if (ev->type == EV_KEY && mapping && mapping_type == 3 && ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1]) ev->code = KEY_ENTER;
 
-	int map_skip = (ev->type == EV_KEY && ev->code == KEY_SPACE && ((mapping_dev >= 0 && mapping_type==1) || mapping_button<0));
+	int map_skip = (ev->type == EV_KEY && ((ev->code == KEY_SPACE && mapping_type == 1) || ev->code == KEY_ALTERASE) && (mapping_dev >= 0 || mapping_button<0));
 	int cancel   = (ev->type == EV_KEY && ev->code == KEY_ESC);
 	int enter    = (ev->type == EV_KEY && ev->code == KEY_ENTER);
 	int origcode = ev->code;
-
-	if (!input[dev].num && ((ev->type == EV_KEY && ev->code >= 256) || (input[dev].quirk == QUIRK_PDSP && ev->type == EV_REL)))
-	{
-		for (uint8_t num = 1; num < NUMDEV + 1; num++)
-		{
-			int found = 0;
-			for (int i = 0; i < NUMDEV; i++)
-			{
-				// paddles/spinners overlay on top of other gamepad
-				if (!((input[dev].quirk == QUIRK_PDSP) ^ (input[i].quirk == QUIRK_PDSP)))
-				{
-					found = (input[i].num == num);
-					if (found) break;
-				}
-			}
-
-			if (!found)
-			{
-				input[dev].num = num;
-				break;
-			}
-		}
-	}
 
 	if (!input[dev].has_mmap)
 	{
@@ -1728,12 +1776,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		{
 			memset(input[dev].map, 0, sizeof(input[dev].map));
 			input[dev].map[map_paddle_btn()] = 0x120;
-			if (cfg.controller_info)
-			{
-				char str[32];
-				sprintf(str, "P%d paddle/spinner", input[dev].num);
-				Info(str, cfg.controller_info * 1000);
-			}
 		}
 		else if (!load_map(get_map_name(dev, 0), &input[dev].map, sizeof(input[dev].map)))
 		{
@@ -1743,7 +1785,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				if (input[dev].has_mmap == 1)
 				{
 					// not defined try to guess the mapping
-					map_joystick(input[dev].map, input[dev].mmap, input[dev].num);
+					map_joystick(input[dev].map, input[dev].mmap);
 				}
 				else
 				{
@@ -1752,11 +1794,52 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			}
 			input[dev].has_map++;
 		}
-		else
-		{
-			map_joystick_show(input[dev].map, input[dev].mmap, input[dev].num);
-		}
 		input[dev].has_map++;
+	}
+
+	if (!input[dev].num && ((ev->type == EV_KEY && ev->code == input[dev].mmap[SYS_BTN_A] && ev->value >= 1) || (input[dev].quirk == QUIRK_PDSP && ev->type == EV_REL)))
+	{
+		for (uint8_t num = 1; num < NUMDEV + 1; num++)
+		{
+			int found = 0;
+			for (int i = 0; i < NUMDEV; i++)
+			{
+				// paddles/spinners overlay on top of other gamepad
+				if (!((input[dev].quirk == QUIRK_PDSP) ^ (input[i].quirk == QUIRK_PDSP)))
+				{
+					found = (input[i].num == num);
+					if (found) break;
+				}
+			}
+
+			if (!found)
+			{
+				input[dev].num = num;
+				store_player(num, dev);
+				printf("Device %s assigned to player %d\n", input[dev].id, input[dev].num);
+				break;
+			}
+		}
+	}
+
+	if (!input[dev].map_shown && input[dev].num && ((ev->type == EV_KEY && ev->code == input[dev].mmap[SYS_BTN_A] && ev->value >= 1) || (input[dev].quirk == QUIRK_PDSP && ev->type == EV_REL)))
+	{
+		input[dev].map_shown = 1;
+		store_player(input[dev].num, dev);
+
+		if (cfg.controller_info)
+		{
+			if (input[dev].quirk == QUIRK_PDSP)
+			{
+				char str[32];
+				sprintf(str, "P%d paddle/spinner", input[dev].num);
+				Info(str, cfg.controller_info * 1000);
+			}
+			else
+			{
+				map_joystick_show(input[dev].map, input[dev].mmap, input[dev].num);
+			}
+		}
 	}
 
 	int old_combo = input[dev].osd_combo;
@@ -2159,6 +2242,18 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 							return;
 						}
 
+						if (ev->code == input[dev].mmap[SYS_BTN_L])
+						{
+							joy_digital(0, JOY_L, 0, ev->value, 0);
+							return;
+						}
+
+						if (ev->code == input[dev].mmap[SYS_BTN_R])
+						{
+							joy_digital(0, JOY_R, 0, ev->value, 0);
+							return;
+						}
+
 						if (ev->code == input[dev].mmap[SYS_BTN_SELECT])
 						{
 							struct input_event key_ev = *ev;
@@ -2519,6 +2614,41 @@ void send_map_cmd(int key)
 
 static struct pollfd pool[NUMDEV + 3];
 
+// add sequential suffixes for non-merged devices
+void make_unique(uint16_t vid, uint16_t pid, int type)
+{
+	int cnt = 0;
+	int lastmin = -1;
+	int min;
+
+	while(1)
+	{
+		int idx = -1;
+		min = INT32_MAX;
+		for (int i = 0; i < NUMDEV; i++)
+		{
+			if ((!type && (input[i].vid == vid)) ||
+				(type > 0 && (input[i].vid == vid) && (input[i].pid == pid)) ||
+				(type < 0 && (input[i].vid == vid) && (input[i].pid != pid)))
+			{
+				int num = -1;
+				const char *n = strstr(input[i].devname, "/event");
+				if (n) num = strtoul(n + 6, NULL, 10);
+				if (num >= 0 && num < min && num > lastmin)
+				{
+					min = num;
+					idx = i;
+				}
+			}
+		}
+
+		if (idx < 0) break;
+
+		lastmin = min;
+		sprintf(input[idx].id + strlen(input[idx].id), "/%d", cnt++);
+	}
+}
+
 void mergedevs()
 {
 	for (int i = 0; i < NUMDEV; i++)
@@ -2534,33 +2664,33 @@ void mergedevs()
 	}
 
 	static char str[1024];
-	char id[32] = {};
+	char phys[64] = {};
+	char uniq[64] = {};
+	char id[64] = {};
+
 	while (fgets(str, sizeof(str), f))
 	{
 		int len = strlen(str);
-		if (!len) id[0] = 0;
+		while (len && str[len - 1] == '\n') str[--len] = 0;
+
+		if (!len)
+		{
+			phys[0] = 0;
+			uniq[0] = 0;
+		}
 		else
 		{
-			if (!strncmp("S: ", str, 3))
+			if (!strncmp("P: Phys", str, 7)) snprintf(phys, sizeof(phys), "%s", strchr(str, '=') + 1);
+			if (!strncmp("U: Uniq", str, 7)) snprintf(uniq, sizeof(uniq), "%s", strchr(str, '=') + 1);
+
+			if (!strncmp("H: ", str, 3))
 			{
-				char *p = strcasestr(str, "/input/");
-				if (p)
-				{
-					*p = 0;
-					p = strrchr(str, '/');
-					if (p)
-					{
-						p++;
-						int len = strlen(p);
-						if (len > 30) p += len - 30;
-						strcpy(id, p);
-					}
-				}
-			}
-			else if (!strncmp("H: ", str, 3) && id[0])
-			{
+				if (strlen(phys) && strlen(uniq)) snprintf(id, sizeof(id), "%s/%s", phys, uniq);
+				else if (strlen(phys)) strcpy(id, phys);
+				else strcpy(id, uniq);
+
 				char *handlers = strchr(str, '=');
-				if (handlers)
+				if (handlers && id[0])
 				{
 					handlers++;
 					for (int i = 0; i < NUMDEV; i++)
@@ -2571,7 +2701,7 @@ void mergedevs()
 							if (dev)
 							{
 								char idsp[32];
-								strcpy(idsp, dev+1);
+								strcpy(idsp, dev + 1);
 								strcat(idsp, " ");
 								if (strstr(handlers, idsp)) strcpy(input[i].id, id);
 							}
@@ -2584,23 +2714,14 @@ void mergedevs()
 
 	fclose(f);
 
+	//Bypass merging of specified 2 port/player controllers
+	make_unique(0x289B, 0x0057, -1); // Raphnet
+	make_unique(0x0E8F, 0x3013, 1); // Mayflash SNES controller 2 port adapter
+	make_unique(0x16C0, 0x05E1, 1); // XinMo XM-10 2 player USB Encoder
+
 	// merge multifunctional devices by id
 	for (int i = 0; i < NUMDEV; i++)
 	{
-		//Bypass merging of specified 2 port/player controllers
-		if (input[i].vid == 0x289B) // Raphnet uses buggy firmware, don't merge it.
-			continue;
-		else if(input[i].vid == 0x0E8F) //Vendor -Mayflash
-		{
-			if(input[i].pid == 0x3013)  //SNES controller 2 port adapter
-				continue;
-		}
-		else if(input[i].vid == 0x16C0) //Vendor - XinMo
-		{
-			if(input[i].pid == 0x05E1) //XM-10 2 player USB Encoder
-				continue;
-		}
-
 		input[i].bind = i;
 		if (input[i].id[0] && !input[i].mouse)
 		{
@@ -2634,7 +2755,7 @@ void mergedevs()
 	}
 }
 
-// jammasd have shifted keys: when 1P start is kept pressed, it acts as a shift key,
+// Jammasd/J-PAC/I-PAC have shifted keys: when 1P start is kept pressed, it acts as a shift key,
 // outputting other key signals. Example: 1P start + 2P start = KEY_ESC
 // Shifted keys are passed as normal keyboard keys.
 static struct
@@ -2642,7 +2763,7 @@ static struct
 	uint16_t key;
 	uint16_t player;
 	uint16_t btn;
-} jammasd2joy[] =
+} jamma2joy[] =
 {
 	{KEY_5,         1, 0x120}, // 1P coin
 	{KEY_1,         1, 0x121}, // 1P start (shift key)
@@ -2658,8 +2779,15 @@ static struct
 	{KEY_X,         1, 0x12B}, // 1P 6
 	{KEY_C,         1, 0x12C}, // 1P 7
 	{KEY_V,         1, 0x12D}, // 1P 8
+
 	{KEY_9,         1, 0x12E}, // Test
-	{KEY_F2,        1, 0x12F}, // service
+	{KEY_TAB,       1, 0x12F}, // Tab (shift + 1P right)
+	{KEY_ENTER,     1, 0x130}, // Enter (shift + 1P left)
+	// ~ Tidle supportted?
+	{KEY_P,         1, 0x131}, // P (pause) (shift + 1P down)
+	{KEY_F1,        1, 0x132}, // Service
+	{KEY_F2,        1, 0x133}, // Test
+	{KEY_F3,        1, 0x134}, // Tilt
 
 	{KEY_6,         2, 0x120}, // 2P coin
 	{KEY_2,         2, 0x121}, // 2P start
@@ -2713,6 +2841,8 @@ int input_test(int getchar)
 			pool[i].fd = -1;
 			pool[i].events = 0;
 		}
+
+		memset(input, 0, sizeof(input));
 
 		int n = 0;
 		DIR *d = opendir("/dev/input");
@@ -2847,10 +2977,10 @@ int input_test(int getchar)
 						// Includes other buttons and axes, works as a full featured gamepad.
 						if (strstr(uniq, "MiSTer-A1")) input[n].quirk = QUIRK_PDSP_ARCADE;
 
-						//JammaSD
-						if (cfg.jammasd_vid && cfg.jammasd_pid && input[n].vid == cfg.jammasd_vid && input[n].pid == cfg.jammasd_pid)
+						//Jamma
+						if (cfg.jamma_vid && cfg.jamma_pid && input[n].vid == cfg.jamma_vid && input[n].pid == cfg.jamma_pid)
 						{
-							input[n].quirk = QUIRK_JAMMASD;
+							input[n].quirk = QUIRK_JAMMA;
 						}
 
 						//Arduino and Teensy devices may share the same VID:PID, so additional field UNIQ is used to differentiate them
@@ -2882,7 +3012,9 @@ int input_test(int getchar)
 			for (int i = 0; i < n; i++)
 			{
 				printf("opened %d(%2d): %s (%04x:%04x) %d \"%s\" \"%s\"\n", i, input[i].bind, input[i].devname, input[i].vid, input[i].pid, input[i].quirk, input[i].id, input[i].name);
+				restore_player(i);
 			}
+			unflag_players();
 		}
 		cur_leds |= 0x80;
 		state++;
@@ -3079,15 +3211,15 @@ int input_test(int getchar)
 									}
 								}
 
-								if (input[dev].quirk == QUIRK_JAMMASD && ev.type == EV_KEY)
+								if (input[dev].quirk == QUIRK_JAMMA && ev.type == EV_KEY)
 								{
 									input[dev].num = 0;
-									for (uint32_t i = 0; i <= sizeof(jammasd2joy) / sizeof(jammasd2joy[0]); i++)
+									for (uint32_t i = 0; i <= sizeof(jamma2joy) / sizeof(jamma2joy[0]); i++)
 									{
-										if (jammasd2joy[i].key == ev.code)
+										if (jamma2joy[i].key == ev.code)
 										{
-											ev.code = jammasd2joy[i].btn;
-											input[dev].num = jammasd2joy[i].player;
+											ev.code = jamma2joy[i].btn;
+											input[dev].num = jamma2joy[i].player;
 											break;
 										}
 									}
@@ -3102,7 +3234,7 @@ int input_test(int getchar)
 									if (ev.code == 1)   ev.code = KEY_MENU;
 								}
 
-								if (ev.type == EV_KEY && ev.code == KEY_BACK && input[dev].num)
+								if (ev.type == EV_KEY && ev.code == KEY_BACK && input[dev].vid == 0x45E)
 								{
 									ev.code = BTN_SELECT;
 								}
@@ -3402,7 +3534,7 @@ int input_poll(int getchar)
 
 			int dx = mouse_emu_x;
 			int dy = mouse_emu_y;
-			if (mouse_sniper)
+			if (mouse_sniper ^ cfg.sniper_mode)
 			{
 				if (dx > 2) dx = 2;
 				if (dx < -2) dx = -2;

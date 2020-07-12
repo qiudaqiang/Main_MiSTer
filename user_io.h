@@ -20,11 +20,6 @@
 #define UIO_KBD_OSD     0x06  // keycodes used by OSD only
 
 // 0x08 - 0x0F - core specific
-#define ST_WRITE_MEMORY 0x08
-#define ST_READ_MEMORY  0x09
-#define ST_ACK_DMA      0x0a
-#define ST_NAK_DMA      0x0b
-#define ST_GET_DMASTATE 0x0c
 
 #define UIO_JOYSTICK2   0x10  // also used by minimig and 8 bit
 #define UIO_JOYSTICK3   0x11  // -"-
@@ -69,6 +64,7 @@
 #define UIO_INFO_GET    0x36
 #define UIO_SETWIDTH    0x37  // Set max scaled horizontal resolution
 #define UIO_SETSYNC     0x38
+#define UIO_SET_AFILTER 0x39
 
 // codes as used by 8bit for file loading from OSD
 #define UIO_FILE_TX     0x53
@@ -186,6 +182,7 @@
 
 void user_io_init(const char *path, const char *xml);
 unsigned char user_io_core_type();
+void user_io_read_core_name();
 void user_io_poll();
 char user_io_menu_button();
 char user_io_user_button();
@@ -201,7 +198,7 @@ uint32_t user_io_get_file_crc();
 int  user_io_file_mount(const char *name, unsigned char index = 0, char pre = 0);
 char *user_io_make_filepath(const char *path, const char *filename);
 char *user_io_get_core_name();
-char *user_io_get_core_path();
+char *user_io_get_core_path(const char *suffix = NULL, int recheck = 0);
 const char *user_io_get_core_name_ex();
 void user_io_name_override(const char* name);
 char has_menu();
@@ -247,9 +244,6 @@ void SetUARTMode(int mode);
 int GetMidiLinkMode();
 void SetMidiLinkMode(int mode);
 
-void set_volume(int cmd);
-int  get_volume();
-
 void user_io_store_filename(char *filename);
 int user_io_use_cheats();
 
@@ -270,7 +264,7 @@ char is_gba();
 char is_c64();
 char is_st();
 
-#define HomeDir (is_menu() ? "Scripts" : user_io_get_core_path())
-#define CoreName (is_menu() ? "Scripts" : user_io_get_core_name())
+#define HomeDir(x) user_io_get_core_path(x)
+#define CoreName user_io_get_core_name()
 
 #endif // USER_IO_H

@@ -11,10 +11,12 @@
 
 #define PCECD_DATA_IO_INDEX 2
 
+float get_cd_seek_ms(int start_sector, int target_sector);
+
 pcecdd_t pcecdd;
 
 pcecdd_t::pcecdd_t() {
-	latency = 10;
+	latency = 0;
 	loaded = 0;
 	index = 0;
 	lba = 0;
@@ -30,6 +32,7 @@ pcecdd_t::pcecdd_t() {
 	CDDAStart = 0;
 	CDDAEnd = 0;
 	CDDAMode = PCECD_CDDAMODE_SILENT;
+	region = 0;
 
 	stat[0] = 0x0;
 	stat[1] = 0x0;
@@ -282,7 +285,7 @@ void pcecdd_t::Unload()
 }
 
 void pcecdd_t::Reset() {
-	latency = 10;
+	latency = 0;
 	index = 0;
 	lba = 0;
 	scanOffset = 0;
@@ -304,7 +307,6 @@ void pcecdd_t::Reset() {
 void pcecdd_t::Update() {
 	if (this->state == PCECD_STATE_READ)
 	{
-		DISKLED_ON;
 		if (this->latency > 0)
 		{
 			this->latency--;
@@ -322,8 +324,7 @@ void pcecdd_t::Update() {
 
 		this->can_read_next = false;
 
-		//if (this->toc.sub) mcd_sub_send();
-
+		DISKLED_ON;
 		if (this->toc.tracks[this->index].type)
 		{
 			// CD-ROM (Mode 1)
@@ -334,7 +335,7 @@ void pcecdd_t::Update() {
 			if (SendData)
 				SendData(sec_buf, 2048 + 2, PCECD_DATA_IO_INDEX);
 
-			printf("\x1b[32mPCECD: Data sector send = %i\n\x1b[0m", this->lba);
+			//printf("\x1b[32mPCECD: Data sector send = %i\n\x1b[0m", this->lba);
 		}
 		else
 		{
@@ -349,9 +350,7 @@ void pcecdd_t::Update() {
 		this->cnt--;
 
 		if (!this->cnt) {
-			stat[0] = 0;
-			stat[1] = 0;
-			has_status = 1;
+			PendStatus(PCECD_STATUS_GOOD, 0);
 
 			this->state = PCECD_STATE_IDLE;
 		}
@@ -374,35 +373,37 @@ void pcecdd_t::Update() {
 	}
 	else if (this->state == PCECD_STATE_PLAY)
 	{
-		DISKLED_ON;
 		if (this->latency > 0)
 		{
 			this->latency--;
 			return;
 		}
 
-		if (this->index >= this->toc.last)
+		this->index = GetTrackByLBA(this->lba, &this->toc);
+
+		DISKLED_ON;
+
+		for (int i = 0; i <= this->CDDAFirst; i++)
 		{
-			this->state = PCECD_STATE_IDLE;
-			return;
+			if (this->toc.tracks[this->index].f.opened() && !this->toc.tracks[this->index].type)
+			{
+				FileSeek(&this->toc.tracks[index].f, (this->lba * 2352) - this->toc.tracks[index].offset, SEEK_SET);
+
+				sec_buf[0] = 0x30;
+				sec_buf[1] = 0x09;
+				ReadCDDA(sec_buf + 2);
+
+				if (SendData)
+					SendData(sec_buf, 2352 + 2, PCECD_DATA_IO_INDEX);
+
+				//printf("\x1b[32mPCECD: Audio sector send = %i, track = %i, offset = %i\n\x1b[0m", this->lba, this->index, (this->lba * 2352) - this->toc.tracks[index].offset);
+			}
+			this->lba++;
 		}
 
-		if (this->toc.tracks[this->index].type)
-			return;
+		this->CDDAFirst = 0;
 
-		FileSeek(&this->toc.tracks[index].f, (this->lba * 2352) - this->toc.tracks[index].offset, SEEK_SET);
-
-		sec_buf[0] = 0x30;
-		sec_buf[1] = 0x09;
-		ReadCDDA(sec_buf + 2);
-
-		if (SendData)
-			SendData(sec_buf, 2352 + 2, PCECD_DATA_IO_INDEX);
-
-		//printf("\x1b[32mPCECD: Audio sector send = %i, track = %i, offset = %i\n\x1b[0m", this->lba, this->index, (this->lba * 2352) - this->toc.tracks[index].offset);
-
-		this->lba++;
-		if (this->lba > this->CDDAEnd)
+		if ((this->lba >= this->CDDAEnd) || this->toc.tracks[this->index].type || this->index >= this->toc.last)
 		{
 			if (this->CDDAMode == PCECD_CDDAMODE_LOOP) {
 				this->lba = this->CDDAStart;
@@ -410,8 +411,21 @@ void pcecdd_t::Update() {
 			else {
 				this->state = PCECD_STATE_IDLE;
 			}
-		}
 
+			if (this->CDDAMode == PCECD_CDDAMODE_INTERRUPT) {
+				PendStatus(PCECD_STATUS_GOOD, 0);
+			}
+
+			printf("\x1b[32mPCECD: playback reached the end %d\n\x1b[0m", this->lba);
+		}
+	}
+	else if (this->state == PCECD_STATE_PAUSE)
+	{
+		if (this->latency > 0)
+		{
+			this->latency--;
+			return;
+		}
 	}
 }
 
@@ -510,18 +524,34 @@ void pcecdd_t::CommandExec() {
 
 	case PCECD_COMM_READ6: {
 		new_lba = ((comm[1] << 16) | (comm[2] << 8) | comm[3]) & 0x1FFFFF;
-		int cnt_ = comm[4];
-
-		this->lba = new_lba;
-		this->cnt = cnt_;
+		int cnt_ = comm[4] ? comm[4] : 256;
 
 		int index = GetTrackByLBA(new_lba, &this->toc);
 
 		this->index = index;
-		if (new_lba < this->toc.tracks[index].start)
+		/*if (new_lba < this->toc.tracks[index].start)
 		{
 			new_lba = this->toc.tracks[index].start;
+		}*/
+
+		/* HuVideo streams by fetching 120 sectors at a time, taking advantage of the geometry
+		 * of the disc to reduce/eliminate seek time */
+		if ((this->lba == new_lba) && (cnt_ == 120))
+		{
+			this->latency = 0;
 		}
+		else if (comm[13] & 0x80) // fast seek (OSD setting)
+		{
+			this->latency = 0;
+		}
+		else
+		{
+			this->latency = (int)(get_cd_seek_ms(this->lba, new_lba)/13.33);
+		}
+		printf("seek time ticks: %d\n", this->latency);
+
+		this->lba = new_lba;
+		this->cnt = cnt_;
 
 		if (this->toc.tracks[index].f.opened())
 		{
@@ -530,8 +560,6 @@ void pcecdd_t::CommandExec() {
 		}
 
 		this->audioOffset = 0;
-
-		//if (this->toc.sub) fseek(this->toc.sub, lba_ * 96, SEEK_SET);
 
 		this->can_read_next = true;
 		this->state = PCECD_STATE_READ;
@@ -577,6 +605,16 @@ void pcecdd_t::CommandExec() {
 		break;
 		}
 
+		if (comm[13] & 0x80) // fast seek (OSD setting)
+		{
+			this->latency = 0;
+		}
+		else
+		{
+			this->latency = (int)(get_cd_seek_ms(this->lba, new_lba) / 13.33);
+		}
+
+		printf("seek time ticks: %d\n", this->latency);
 
 		this->lba = new_lba;
 		int index = GetTrackByLBA(new_lba, &this->toc);
@@ -588,29 +626,20 @@ void pcecdd_t::CommandExec() {
 		}*/
 
 		this->CDDAStart = new_lba;
-		this->CDDAEnd = this->toc.tracks[index].end;
+		this->CDDAEnd = this->toc.end;
 		this->CDDAMode = comm[1];
+		this->CDDAFirst = 1;
 
-		printf("PCECD_COMM_SAPSP: CDDAEnd=%d\n", this->CDDAEnd);
-
-		if (this->CDDAMode != PCECD_CDDAMODE_SILENT) {
+		if (this->CDDAMode == PCECD_CDDAMODE_SILENT) {
+			this->state = PCECD_STATE_PAUSE;
+		}
+		else {
 			this->state = PCECD_STATE_PLAY;
 		}
 
-		FileSeek(&this->toc.tracks[index].f, (this->lba * 2352) - this->toc.tracks[index].offset, SEEK_SET);
-
-		sec_buf[0] = 0x30;
-		sec_buf[1] = 0x09;
-		ReadCDDA(sec_buf + 2);
-
-		if (SendData)
-			SendData(sec_buf, 2352 + 2, PCECD_DATA_IO_INDEX);
-
-		this->lba++;
-
 		PendStatus(PCECD_STATUS_GOOD, 0);
 	}
-		printf("\x1b[32mPCECD: Command SAPSP, start = %i, [1] = %02X, [2] = %02X, [9] = %02X\n\x1b[0m", this->CDDAStart, comm[1], comm[2], comm[9]);
+		printf("\x1b[32mPCECD: Command SAPSP, start = %d, end = %d, [1] = %02X, [2] = %02X, [9] = %02X\n\x1b[0m", this->CDDAStart, this->CDDAEnd, comm[1], comm[2], comm[9]);
 		break;
 
 	case PCECD_COMM_SAPEP: {
@@ -630,7 +659,7 @@ void pcecdd_t::CommandExec() {
 			int track = U8(comm[2]);
 
 			if (!track)	track = 1;
-			new_lba = (track >= toc.last) ? this->toc.end : (this->toc.tracks[track - 1].start + 150);
+			new_lba = (track >= toc.last) ? this->toc.end : (this->toc.tracks[track - 1].start);
 		}
 		break;
 		}
@@ -638,13 +667,16 @@ void pcecdd_t::CommandExec() {
 		this->CDDAMode = comm[1];
 		this->CDDAEnd = new_lba;
 
-		printf("PCECD_COMM_SAPEP: CDDAEnd=%d\n", this->CDDAEnd);
-
-		if (this->CDDAMode != PCECD_CDDAMODE_SILENT) {
+		if (this->CDDAMode == PCECD_CDDAMODE_SILENT) {
+			this->state = PCECD_STATE_IDLE;
+		}
+		else {
 			this->state = PCECD_STATE_PLAY;
 		}
 
-		PendStatus(PCECD_STATUS_GOOD, 0);
+		if (this->CDDAMode != PCECD_CDDAMODE_INTERRUPT) {
+			PendStatus(PCECD_STATUS_GOOD, 0);
+		}
 	}
 		printf("\x1b[32mPCECD: Command SAPEP, end = %i, [1] = %02X, [2] = %02X, [9] = %02X\n\x1b[0m", this->CDDAEnd, comm[1], comm[2], comm[9]);
 		break;
@@ -658,29 +690,28 @@ void pcecdd_t::CommandExec() {
 		break;
 
 	case PCECD_COMM_READSUBQ: {
-		int lba_rel = this->toc.tracks[this->index].start - this->toc.tracks[this->index].offset + 150;
-		new_lba = this->toc.tracks[this->index].start + 150;
+		int lba_rel = this->lba - this->toc.tracks[this->index].start;
 
 		buf[0] = 0x0A;
 		buf[1] = 0 | 0x80;
-		buf[2] = this->state == PCECD_STATE_PLAY ? 0 : 3;
+		buf[2] = this->state == PCECD_STATE_PAUSE ? 2 : (this->state == PCECD_STATE_PLAY ? 0 : 3);
 		buf[3] = 0;
-		buf[4] = this->index + 1;
-		buf[5] = this->index;
+		buf[4] = BCD(this->index + 1);
+		buf[5] = BCD(this->index);
 
 		LBAToMSF(lba_rel, &msf);
 		buf[6] = BCD(msf.m);
 		buf[7] = BCD(msf.s);
 		buf[8] = BCD(msf.f);
 
-		LBAToMSF(new_lba, &msf);
+		LBAToMSF(this->lba, &msf);
 		buf[9] = BCD(msf.m);
 		buf[10] = BCD(msf.s);
 		buf[11] = BCD(msf.f);
 
 		PendStatus(PCECD_STATUS_GOOD, 0);
 
-		printf("\x1b[32mPCECD: Command READSUBQ, [1] = %02X, track = %i, index = %i, lba_rel = %i, lba_abs = %i\n\x1b[0m", comm[1], this->index + 1, this->index, lba_rel, new_lba);
+		printf("\x1b[32mPCECD: Command READSUBQ, [1] = %02X, track = %i, index = %i, lba_rel = %i, lba_abs = %i\n\x1b[0m", comm[1], this->index + 1, this->index, lba_rel, this->lba);
 
 		if (SendData)
 			SendData(buf, 10 + 2, PCECD_DATA_IO_INDEX);
@@ -688,7 +719,8 @@ void pcecdd_t::CommandExec() {
 		break;
 
 	default:
-		//stat[0] = this->status;
+		CommandError(SENSEKEY_ILLEGAL_REQUEST, NSE_INVALID_COMMAND, 0, 0);
+		SendStatus(PCECD_STATUS_CHECK_COND, 0);
 
 		printf("\x1b[32mPCECD: Command undefined, [0] = %02X, [1] = %02X, [2] = %02X, [3] = %02X, [4] = %02X, [5] = %02X\n\x1b[0m", comm[0], comm[1], comm[2], comm[3], comm[4], comm[5]);
 		break;
@@ -701,7 +733,7 @@ int pcecdd_t::GetStatus(uint8_t* buf) {
 }
 
 int pcecdd_t::SetCommand(uint8_t* buf) {
-	memcpy(comm, buf, 12);
+	memcpy(comm, buf, 14);
 	return 0;
 }
 
@@ -711,6 +743,18 @@ void pcecdd_t::PendStatus(uint8_t status, uint8_t message) {
 	has_status = 1;
 }
 
+void pcecdd_t::SendStatus(uint16_t status, uint8_t flag) {
+
+	spi_uio_cmd_cont(UIO_CD_SET);
+	spi_w(status);
+	spi_w((flag & 1) | (region ? 2 : 0));
+	DisableIO();
+}
+
+void pcecdd_t::SetRegion(uint8_t rgn) {
+	region = rgn;
+}
+
 void pcecdd_t::LBAToMSF(int lba, msf_t* msf) {
 	msf->m = (lba / 75) / 60;
 	msf->s = (lba / 75) % 60;
@@ -718,11 +762,11 @@ void pcecdd_t::LBAToMSF(int lba, msf_t* msf) {
 }
 
 void pcecdd_t::MSFToLBA(int* lba, uint8_t m, uint8_t s, uint8_t f) {
-	*lba = f + s * 75 + m * 60 * 75;
+	*lba = f + s * 75 + m * 60 * 75 - 150;
 }
 
 void pcecdd_t::MSFToLBA(int* lba, msf_t* msf) {
-	*lba = msf->f + msf->s * 75 + msf->m * 60 * 75;
+	*lba = msf->f + msf->s * 75 + msf->m * 60 * 75 - 150;
 }
 
 int pcecdd_t::GetTrackByLBA(int lba, toc_t* toc) {

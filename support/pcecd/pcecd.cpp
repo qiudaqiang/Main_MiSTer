@@ -8,6 +8,7 @@
 #include "../../user_io.h"
 #include "../../spi.h"
 #include "../../hardware.h"
+#include "../../menu.h"
 #include "pcecd.h"
 
 
@@ -20,30 +21,31 @@ void pcecd_poll()
 	static uint8_t last_req = 0;
 	static uint8_t adj = 0;
 
-	if (!poll_timer || CheckTimer(poll_timer))
-	{
-		poll_timer = GetTimer(13 + (!adj ? 1 : 0));
-		if (++adj >= 3) adj = 0;
+	if (!poll_timer) poll_timer = GetTimer(13);
 
-		if (pcecdd.has_status) {
+	if (CheckTimer(poll_timer))
+	{
+		if ((!pcecdd.latency) && (pcecdd.state == PCECD_STATE_READ)) {
+			poll_timer += 16 + ((adj == 10) ? 1 : 0);	// 16.1ms between frames if reading data */
+			if (--adj <= 0) adj = 10;
+		} else {
+			poll_timer += 13 + ((adj == 3) ? 1 : 0);	// 13.33ms otherwise (including latency counts) */
+			if (adj > 3) adj = 3;
+			if (--adj <= 0) adj = 3;
+		}
+
+		if (pcecdd.has_status && !pcecdd.latency) {
+
 			uint16_t s;
 			pcecdd.GetStatus((uint8_t*)&s);
-
-			spi_uio_cmd_cont(UIO_CD_SET);
-			spi_w(s);
-			spi_w(0);
-			DisableIO();
-
+			pcecdd.SendStatus(s, 0);
 			pcecdd.has_status = 0;
 
 			printf("\x1b[32mPCECD: Send status = %02X, message = %02X\n\x1b[0m", s&0xFF, s >> 8);
 		}
 		else if (pcecdd.data_req) {
-			spi_uio_cmd_cont(UIO_CD_SET);
-			spi_w(0);
-			spi_w(1);
-			DisableIO();
 
+			pcecdd.SendStatus(0, 1);
 			pcecdd.data_req = false;
 
 			printf("\x1b[32mPCECD: Data request for MODESELECT6\n\x1b[0m");
@@ -58,19 +60,18 @@ void pcecd_poll()
 	{
 		last_req = req;
 
-		uint16_t data_in[6];
-		uint16_t data_mode;
+		uint16_t data_in[7];
 		data_in[0] = spi_w(0);
 		data_in[1] = spi_w(0);
 		data_in[2] = spi_w(0);
 		data_in[3] = spi_w(0);
 		data_in[4] = spi_w(0);
 		data_in[5] = spi_w(0);
-		data_mode = spi_w(0);
+		data_in[6] = spi_w(0);
 		DisableIO();
 
 
-		switch (data_mode & 0xFF)
+		switch (data_in[6] & 0xFF)
 		{
 		case 0:
 			pcecdd.SetCommand((uint8_t*)data_in);
@@ -102,6 +103,7 @@ void pcecd_poll()
 	if (need_reset) {
 		need_reset = 0;
 		pcecdd.Reset();
+		poll_timer = 0;
 		printf("\x1b[32mPCECD: Reset\n\x1b[0m");
 	}
 
@@ -138,14 +140,13 @@ static char us_sig[] =
 
 static int load_bios(char *biosname, const char *cuename)
 {
-	uint32_t size = FileLoad(biosname, 0, 0);
-	if (!size) return 0;
-
 	fileTYPE f;
 	if (!FileOpen(&f, biosname)) return 0;
 
-	int swap = 0;
-	uint32_t start = size & 0x3FF;
+	uint8_t us_cart = 0, swap = 0;
+
+	uint32_t start = f.size & 0x3FF;
+	uint32_t size = f.size;
 
 	if (size >= 262144)
 	{
@@ -154,7 +155,7 @@ static int load_bios(char *biosname, const char *cuename)
 		FileSeek(&f, start + size - 26, SEEK_SET);
 		memset(buf, 0, sizeof(buf));
 		FileReadAdv(&f, buf, 26);
-		swap = !memcmp(buf, us_sig, sizeof(us_sig));
+		swap = !memcmp(buf, us_sig, sizeof(us_sig)) ? 1 : 0;
 	}
 
 	user_io_set_index(0);
@@ -163,16 +164,23 @@ static int load_bios(char *biosname, const char *cuename)
 
 	while (size)
 	{
-		uint16_t chunk = (size > sizeof(buf)) ? sizeof(buf) : size;
+		int chunk = (size > sizeof(buf)) ? sizeof(buf) : size;
 		size -= chunk;
 
 		FileReadAdv(&f, buf, chunk);
 		if (swap)
 		{
-			for (uint32_t i = 0; i < chunk; i++)
+			for (int i = 0; i < chunk; i++)
 			{
 				unsigned char c = buf[i];
 				buf[i] = ((c & 1) << 7) | ((c & 2) << 5) | ((c & 4) << 3) | ((c & 8) << 1) | ((c & 16) >> 1) | ((c & 32) >> 3) | ((c & 64) >> 5) | ((c & 128) >> 7);
+			}
+		}
+		else if (f.size >= 262144)
+		{
+			for (int i = 0; i < chunk - 8; i++)
+			{
+				if (!memcmp(buf + i, "ALL DATA", 8)) us_cart = 1;
 			}
 		}
 		user_io_file_tx_write((uint8_t*)buf, chunk);
@@ -182,7 +190,7 @@ static int load_bios(char *biosname, const char *cuename)
 	user_io_file_mount(buf, 0, 1);
 
 	user_io_set_download(0);
-
+	pcecdd.SetRegion(swap | us_cart);
 	return 1;
 }
 
@@ -216,9 +224,12 @@ void pcecd_set_image(int num, const char *filename)
 
 			if (!loaded)
 			{
-				sprintf(buf, "%s/cd_bios.rom", user_io_get_core_path());
-				load_bios(buf, filename);
+				sprintf(buf, "%s/cd_bios.rom", HomeDir(PCECD_DIR));
+				loaded = load_bios(buf, filename);
 			}
+
+			if (!loaded) Info("CD BIOS not found!", 4000);
+
 			notify_mount(1);
 		}
 		else {

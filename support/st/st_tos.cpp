@@ -10,6 +10,12 @@
 #include "../../fpga_io.h"
 #include "st_tos.h"
 
+#define ST_WRITE_MEMORY 0x08
+#define ST_READ_MEMORY  0x09
+#define ST_ACK_DMA      0x0a
+#define ST_NAK_DMA      0x0b
+#define ST_GET_DMASTATE 0x0c
+
 #define CONFIG_FILENAME  "ATARIST0.CFG"
 
 const char* tos_mem[] = { "512kb", "1mb", "2mb", "4mb", "8mb", "14mb", "--", "--" };
@@ -61,7 +67,7 @@ static void set_control(uint32_t ctrl)
 	ctrl = uart_mode ? (ctrl | TOS_CONTROL_REDIR0) : (ctrl & ~TOS_CONTROL_REDIR0);
 
 	spi_uio_cmd_cont(UIO_SET_STATUS2);
-	spi32w(ctrl);
+	spi32_w(ctrl);
 	DisableIO();
 }
 
@@ -412,6 +418,8 @@ void tos_poll()
 		{
 			if (CheckTimer(timer))
 			{
+				tos_insert_disk(0, "");
+				tos_insert_disk(1, "");
 				tos_reset(1);
 				timer = 1;
 			}
@@ -570,7 +578,7 @@ void tos_config_load(int slot)
 
 	// set default values
 	config.system_ctrl = TOS_MEMCONFIG_1M | TOS_CONTROL_VIDEO_COLOR | TOS_CONTROL_BORDER;
-	strcpy(config.tos_img, user_io_get_core_path());
+	strcpy(config.tos_img, HomeDir());
 	strcat(config.tos_img, "/TOS.IMG");
 
 	// try to load config
