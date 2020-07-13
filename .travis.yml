@@ -5,6 +5,13 @@ matrix:
     - os: linux
       env: TARGET="linux"
 
+deploy:
+  provider: releases
+  api_key: $GITHUB_API_KEY
+  file_glob: true
+  file: "MiSTer"
+  skip_cleanup: true
+
 branches:
   only:
     - master
