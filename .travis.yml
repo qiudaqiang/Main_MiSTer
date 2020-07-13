@@ -1,0 +1,17 @@
+language: c
+
+matrix:
+  include:
+    - os: linux
+      env: TARGET="linux"
+
+branches:
+  only:
+    - master
+
+install:
+  - apt-get install gcc-arm-linux-gnueabihf
+  - apt-get install g++-arm-linux-gnueabihf
+
+script:
+  - sh .travis.sh
