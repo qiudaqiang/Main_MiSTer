@@ -30,35 +30,6 @@ Please note that after loading the core, the Main App will restart itself. So
 if you need to write other command after a `load_core` you have to wait some
 time (1 second will be enough).
 
-# Loading a rom
-
-To load a rom you need the following two commands
-
-```
-scan_mask_add /path/to/rom
-select_a_rom
-```
-
-The first command will override the file system navigation of the MiSTer. After
-it, the roms/files menu of MiSTer menu will contain just `/path/to/rom`.
-Multiple files can be added by invoking multiple times the `scan_mask_add`
-command.
-
-To return to the standard file system navigation, you can use the following
-command
-
-```
-scan_clear
-```
-
-The `select_a_rom` command will send to the core a synthesized sequence of user
-input that let the MiSTer to navigate the menu and select a rom file (actually
-the last one).
-
-Note: the user input is sent to the MiSTer Main App by mean of a temporary
-background process that write other commands to /dev/MiSTer_cmd with some delay
-between one and the other.
-
 # Slave menu application / launcher
 
 A slave application can be launched with the command

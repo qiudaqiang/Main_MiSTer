@@ -40,10 +40,6 @@ int flist_iSelectedEntry();
 direntext_t* flist_DirItem(int n);
 direntext_t* flist_SelectedItem();
 
-int ForceFileScanAdd(char* path);
-int ForceFileScanRenameLast(char* path);
-int ForceFileScanClear();
-
 // scanning flags
 #define SCANF_INIT       0 // start search from beginning of directory
 #define SCANF_NEXT       1 // find next file in directory
