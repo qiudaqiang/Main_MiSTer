@@ -548,7 +548,7 @@ int FileSeekLBA(fileTYPE *file, uint32_t offset)
 }
 
 // Read with offset advancing
-int FileReadAdv(fileTYPE *file, void *pBuffer, int length)
+int FileReadAdv(fileTYPE *file, void *pBuffer, int length, int failres)
 {
 	ssize_t ret = 0;
 
@@ -558,7 +558,7 @@ int FileReadAdv(fileTYPE *file, void *pBuffer, int length)
 		if (ret < 0)
 		{
 			printf("FileReadAdv error(%d).\n", ret);
-			return 0;
+			return failres;
 		}
 	}
 	else if (file->zip)
@@ -568,14 +568,14 @@ int FileReadAdv(fileTYPE *file, void *pBuffer, int length)
 		{
 			printf("FileReadEx(mz_zip_reader_extract_iter_read) Failed to read, error:%s\n",
 			       mz_zip_get_error_string(mz_zip_get_last_error(&file->zip->archive)));
-			return 0;
+			return failres;
 		}
 		file->zip->offset += ret;
 	}
 	else
 	{
 		printf("FileReadAdv error(unknown file type).\n");
-		return 0;
+		return failres;
 	}
 
 	file->offset += ret;
@@ -588,7 +588,7 @@ int FileReadSec(fileTYPE *file, void *pBuffer)
 }
 
 // Write with offset advancing
-int FileWriteAdv(fileTYPE *file, void *pBuffer, int length)
+int FileWriteAdv(fileTYPE *file, void *pBuffer, int length, int failres)
 {
 	int ret;
 
@@ -600,18 +600,18 @@ int FileWriteAdv(fileTYPE *file, void *pBuffer, int length)
 		if (ret < 0)
 		{
 			printf("FileWriteAdv error(%d).\n", ret);
-			return 0;
+			return failres;
 		}
 	}
 	else if (file->zip)
 	{
 		printf("FileWriteAdv error(not supported for zip).\n");
-		return 0;
+		return failres;
 	}
 	else
 	{
 		printf("FileWriteAdv error(unknown file type).\n");
-		return 0;
+		return failres;
 	}
 
 	file->offset += ret;
@@ -1475,7 +1475,7 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					{
 						const char *ext = extension;
 						int found = (has_trd && x2trd_ext_supp(de->d_name));
-						if (!found && !strcasecmp(de->d_name + strlen(de->d_name) - 4, ".zip") && (options & SCANO_DIR))
+						if (!found && !(options & SCANO_NOZIP) && !strcasecmp(de->d_name + strlen(de->d_name) - 4, ".zip") && (options & SCANO_DIR))
 						{
 							// Fake that zip-file is a directory.
 							de->d_type = DT_DIR;
@@ -1558,16 +1558,26 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		std::sort(DirItem.begin(), DirItem.end(), DirentComp());
 		if (file_name[0])
 		{
+			int pos = -1;
 			for (int i = 0; i < flist_nDirEntries(); i++)
 			{
 				if (!strcmp(file_name, DirItem[i].de.d_name))
 				{
-					iSelectedEntry = i;
-					if (iSelectedEntry + (OsdGetSize() / 2) >= flist_nDirEntries()) iFirstEntry = flist_nDirEntries() - OsdGetSize();
-					else iFirstEntry = iSelectedEntry - (OsdGetSize() / 2) + 1;
-					if (iFirstEntry < 0) iFirstEntry = 0;
+					pos = i;
 					break;
 				}
+				else if (!strcasecmp(file_name, DirItem[i].de.d_name))
+				{
+					pos = i;
+				}
+			}
+
+			if(pos>=0)
+			{
+				iSelectedEntry = pos;
+				if (iSelectedEntry + (OsdGetSize() / 2) >= flist_nDirEntries()) iFirstEntry = flist_nDirEntries() - OsdGetSize();
+				else iFirstEntry = iSelectedEntry - (OsdGetSize() / 2) + 1;
+				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
 		}
 		return flist_nDirEntries();
@@ -1647,16 +1657,26 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		}
 		else if (mode == SCANF_SET_ITEM)
 		{
+			int pos = -1;
 			for (int i = 0; i < flist_nDirEntries(); i++)
 			{
-				if((DirItem[i].de.d_type == DT_DIR) && !strcmp(DirItem[i].altname, extension))
+				if ((DirItem[i].de.d_type == DT_DIR) && !strcmp(DirItem[i].altname, extension))
 				{
-					iSelectedEntry = i;
-					if (iSelectedEntry + (OsdGetSize() / 2) >= flist_nDirEntries()) iFirstEntry = flist_nDirEntries() - OsdGetSize();
-					else iFirstEntry = iSelectedEntry - (OsdGetSize() / 2) + 1;
-					if (iFirstEntry < 0) iFirstEntry = 0;
+					pos = i;
 					break;
 				}
+				else if ((DirItem[i].de.d_type == DT_DIR) && !strcasecmp(DirItem[i].altname, extension))
+				{
+					pos = i;
+				}
+			}
+
+			if(pos>=0)
+			{
+				iSelectedEntry = pos;
+				if (iSelectedEntry + (OsdGetSize() / 2) >= flist_nDirEntries()) iFirstEntry = flist_nDirEntries() - OsdGetSize();
+				else iFirstEntry = iSelectedEntry - (OsdGetSize() / 2) + 1;
+				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
 		}
 		else
